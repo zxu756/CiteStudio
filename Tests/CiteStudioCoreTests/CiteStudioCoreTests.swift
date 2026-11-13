@@ -258,13 +258,76 @@ struct CiteStudioCoreTests {
         #expect(ruleIds.contains("polish-uncited-float"))
     }
 
-    @Test("CiteStudioScreenshotExporter renders 2x Retina screenshots cleanly")
+    @Test("CiteStudioScreenshotExporter renders 2x Retina screenshots (EN + ZH) cleanly")
     @MainActor
     func exportsScreenshots() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_shots_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try CiteStudioScreenshotExporter.exportMarketingScreenshots(to: tmp)
-        #expect(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("screenshot-main.png").path))
-        #expect(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("screenshot-firewall.png").path))
+        try CiteStudioScreenshotExporter.exportMarketingScreenshots(to: tmp, language: .en)
+        try CiteStudioScreenshotExporter.exportMarketingScreenshots(to: tmp, language: .zhHans)
+
+        let mainEN = try Data(contentsOf: tmp.appendingPathComponent("screenshot-main.png"))
+        let fwEN = try Data(contentsOf: tmp.appendingPathComponent("screenshot-firewall.png"))
+        let mainZH = try Data(contentsOf: tmp.appendingPathComponent("screenshot-main-zh.png"))
+        let fwZH = try Data(contentsOf: tmp.appendingPathComponent("screenshot-firewall-zh.png"))
+        #expect(mainEN.count > 40_000)
+        #expect(fwEN.count > 40_000)
+        #expect(mainZH.count > 40_000)
+        #expect(fwZH.count > 40_000)
+    }
+
+    @Test("AppLocalizer resolves --lang CLI flag, UserDefaults persistence, Chinese locale auto-detection, and live toggle")
+    @MainActor
+    func appLocalizerResolutionAndToggle() throws {
+        let suiteName = "CiteStudioLocalizerTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "io.github.zxu756.CiteStudio.test.language"
+
+        // 1. Auto-detect Chinese system locale when no CLI flag or UserDefaults override exists
+        let zhAuto = AppLocalizer(
+            arguments: ["CiteStudio"],
+            userDefaults: defaults,
+            preferredLanguages: ["zh-Hans-CN", "en-US"],
+            defaultsKey: key
+        )
+        #expect(zhAuto.language == .zhHans)
+        #expect(zhAuto.isChinese)
+        #expect(zhAuto.L("Verify Citations", "核验引文") == "核验引文")
+
+        // 2. Live toggle persists to UserDefaults
+        zhAuto.toggle()
+        #expect(zhAuto.language == .en)
+        #expect(defaults.string(forKey: key) == "en")
+        zhAuto.toggle()
+        #expect(zhAuto.language == .zhHans)
+        #expect(defaults.string(forKey: key) == "zh-Hans")
+
+        // 3. Stored UserDefaults wins over non-Chinese locale
+        defaults.set("zh-Hans", forKey: key)
+        let fromDefaults = AppLocalizer(
+            arguments: ["CiteStudio"],
+            userDefaults: defaults,
+            preferredLanguages: ["en-US"],
+            defaultsKey: key
+        )
+        #expect(fromDefaults.language == .zhHans)
+
+        // 4. CLI --lang flag overrides UserDefaults and system locale
+        let cliOverride = AppLocalizer(
+            arguments: ["CiteStudio", "--lang", "en"],
+            userDefaults: defaults,
+            preferredLanguages: ["zh-Hant-TW"],
+            defaultsKey: key
+        )
+        #expect(cliOverride.language == .en)
+
+        let cliZhOverride = AppLocalizer(
+            arguments: ["CiteStudio", "--lang=zh"],
+            userDefaults: defaults,
+            preferredLanguages: ["en-US"],
+            defaultsKey: key
+        )
+        #expect(cliZhOverride.language == .zhHans)
     }
 }

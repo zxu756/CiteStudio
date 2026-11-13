@@ -33,8 +33,9 @@ echo "==> Ad-hoc signing & verifying..."
 codesign --force --deep --sign - "${APP_BUNDLE}"
 codesign --verify --verbose=2 "${APP_BUNDLE}"
 
-echo "==> Rendering 2x Retina screenshots to docs/..."
+echo "==> Rendering 2x Retina screenshots (EN + ZH) to docs/..."
 mkdir -p "${ROOT_DIR}/docs"
-"${MACOS_DIR}/${APP_NAME}" --export-screenshots "${ROOT_DIR}/docs"
+"${MACOS_DIR}/${APP_NAME}" --export-screenshots "${ROOT_DIR}/docs" --lang en
+"${MACOS_DIR}/${APP_NAME}" --export-screenshots "${ROOT_DIR}/docs" --lang zh
 
 echo "✓ Built ${APP_BUNDLE}"

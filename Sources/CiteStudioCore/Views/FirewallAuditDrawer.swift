@@ -3,23 +3,30 @@ import SwiftUI
 /// Displays Citation Firewall verdicts, 1-click arXiv -> peer-reviewed BibTeX upgrade, and deterministic anti-AI / polish lints.
 public struct FirewallAuditDrawer: View {
     @ObservedObject var session: CiteStudioWorkspaceSession
+    @ObservedObject var localizer: AppLocalizer
 
-    public init(session: CiteStudioWorkspaceSession) {
+    @MainActor
+    public init(session: CiteStudioWorkspaceSession, localizer: AppLocalizer? = nil) {
         self.session = session
+        self.localizer = localizer ?? .shared
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Citation Firewall Section
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Citation Firewall (Crossref + OpenAlex + SQLite)")
+                HStack(spacing: 8) {
+                    Text(localizer.L("Citation Firewall (Crossref + OpenAlex + SQLite)", "引文防火墙（Crossref + OpenAlex + SQLite）"))
                         .font(.system(size: 12, weight: .bold))
+                        .tracking(0)
                         .foregroundStyle(CiteStudioTheme.carbonInk)
-                    Spacer()
-                    Text("MCP Gate: ERR_UNVERIFIED_CITATION active")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Text(localizer.L("MCP Gate: ERR_UNVERIFIED_CITATION active", "MCP 门禁：ERR_UNVERIFIED_CITATION"))
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .tracking(0)
                         .foregroundStyle(CiteStudioTheme.oxfordNavy)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -31,27 +38,33 @@ public struct FirewallAuditDrawer: View {
                     ForEach(session.diagnostics) { diag in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
-                                Text(badgeLabel(diag.kind))
+                                Text(diag.kind.badgeLabel(in: localizer.language))
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 6)
+                                    .tracking(0)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .padding(.horizontal, 6.5)
                                     .padding(.vertical, 2)
                                     .background(badgeColor(diag.kind).opacity(0.14))
                                     .foregroundStyle(badgeColor(diag.kind))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                                Text(diag.headline)
+                                Text(diag.localizedHeadline(in: localizer.language))
                                     .font(.system(size: 11.5, weight: .semibold))
+                                    .tracking(0)
                                     .foregroundStyle(CiteStudioTheme.carbonInk)
+                                    .fixedSize(horizontal: false, vertical: true)
 
                                 Spacer()
 
                                 if diag.kind == .preprintUpgrade {
-                                    Button("Upgrade .bib") {
+                                    Button(localizer.L("Upgrade .bib", "一键升级 .bib")) {
                                         session.applyPreprintUpgrade(for: diag)
                                     }
                                     .buttonStyle(.plain)
                                     .font(.system(size: 10.5, weight: .semibold))
-                                    .padding(.horizontal, 8)
+                                    .tracking(0)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .padding(.horizontal, 8.5)
                                     .padding(.vertical, 3)
                                     .background(CiteStudioTheme.amberGold.opacity(0.16))
                                     .foregroundStyle(CiteStudioTheme.amberGold)
@@ -59,8 +72,9 @@ public struct FirewallAuditDrawer: View {
                                 }
                             }
 
-                            Text(diag.detail)
+                            Text(diag.localizedDetail(in: localizer.language))
                                 .font(.system(size: 11))
+                                .tracking(0)
                                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -78,13 +92,20 @@ public struct FirewallAuditDrawer: View {
             // Writing Quality & Anti-AI Linter Section
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("Manuscript Prose & Float Polish")
+                    Text(localizer.L("Manuscript Prose & Float Polish", "文稿去 AI 套话与图表规范体检"))
                         .font(.system(size: 12, weight: .bold))
+                        .tracking(0)
                         .foregroundStyle(CiteStudioTheme.carbonInk)
                     Spacer()
-                    Text("\(session.lintFindings.count) deterministic checks")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    Text(
+                        localizer.isChinese
+                            ? "共 \(session.lintFindings.count) 项确定性检查"
+                            : "\(session.lintFindings.count) deterministic checks"
+                    )
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .tracking(0)
+                    .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -95,17 +116,26 @@ public struct FirewallAuditDrawer: View {
                 VStack(spacing: 0) {
                     ForEach(session.lintFindings.prefix(4)) { item in
                         VStack(alignment: .leading, spacing: 3) {
-                            HStack {
-                                Text("L\(item.lineNumber) · \(item.category)")
-                                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(CiteStudioTheme.exLibrisBurgundy)
-                                Text(item.matchedText)
+                            HStack(spacing: 6) {
+                                Text(
+                                    localizer.isChinese
+                                        ? "第 \(item.lineNumber) 行 · \(item.categoryLabel(in: .zhHans))"
+                                        : "L\(item.lineNumber) · \(item.category)"
+                                )
+                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                .tracking(0)
+                                .foregroundStyle(CiteStudioTheme.exLibrisBurgundy)
+                                .fixedSize(horizontal: true, vertical: false)
+
+                                Text(item.localizedMatchedText(in: localizer.language))
                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .tracking(0)
                                     .foregroundStyle(CiteStudioTheme.carbonInk)
                                 Spacer()
                             }
-                            Text(item.suggestion)
+                            Text(item.localizedSuggestion(in: localizer.language))
                                 .font(.system(size: 11))
+                                .tracking(0)
                                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -125,17 +155,6 @@ public struct FirewallAuditDrawer: View {
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CiteStudioTheme.vellumPage)
-    }
-
-    private func badgeLabel(_ kind: FirewallVerdictKind) -> String {
-        switch kind {
-        case .verified: return "VERIFIED"
-        case .preprintUpgrade: return "UPGRADE"
-        case .metadataMismatch: return "MISMATCH"
-        case .retracted: return "RETRACTED"
-        case .ghostPaper: return "GHOST BLOCK"
-        case .orphanCite: return "ORPHAN"
-        }
     }
 
     private func badgeColor(_ kind: FirewallVerdictKind) -> Color {

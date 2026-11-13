@@ -110,6 +110,23 @@ public enum FirewallVerdictKind: String, Sendable, Codable, CaseIterable {
             return false
         }
     }
+
+    public func badgeLabel(in language: AppLanguage) -> String {
+        switch self {
+        case .verified:
+            return language == .zhHans ? "已核验" : "VERIFIED"
+        case .preprintUpgrade:
+            return language == .zhHans ? "可升级正式版" : "UPGRADE"
+        case .metadataMismatch:
+            return language == .zhHans ? "元数据偏差" : "MISMATCH"
+        case .retracted:
+            return language == .zhHans ? "已撤稿" : "RETRACTED"
+        case .ghostPaper:
+            return language == .zhHans ? "幽灵拦截" : "GHOST BLOCK"
+        case .orphanCite:
+            return language == .zhHans ? "孤立引用" : "ORPHAN"
+        }
+    }
 }
 
 public struct ScholarRecord: Sendable, Equatable, Codable {
@@ -163,6 +180,8 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
     public let kind: FirewallVerdictKind
     public let headline: String
     public let detail: String
+    public let headlineZh: String?
+    public let detailZh: String?
     public let matchedRecord: ScholarRecord?
     public let upgradedBibTeX: String?
     public let lineNumbers: [Int]
@@ -173,6 +192,8 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         kind: FirewallVerdictKind,
         headline: String,
         detail: String,
+        headlineZh: String? = nil,
+        detailZh: String? = nil,
         matchedRecord: ScholarRecord? = nil,
         upgradedBibTeX: String? = nil,
         lineNumbers: [Int] = [],
@@ -183,10 +204,62 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         self.kind = kind
         self.headline = headline
         self.detail = detail
+        self.headlineZh = headlineZh
+        self.detailZh = detailZh
         self.matchedRecord = matchedRecord
         self.upgradedBibTeX = upgradedBibTeX
         self.lineNumbers = lineNumbers
         self.hasLocalPDFEvidence = hasLocalPDFEvidence
+    }
+
+    public func localizedHeadline(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return headline }
+        if let headlineZh, !headlineZh.isEmpty { return headlineZh }
+        switch kind {
+        case .verified:
+            if let rec = matchedRecord {
+                return "已通过 \(rec.source) 核验（\(rec.venue), \(rec.year)）"
+            }
+            return "已核验引用 (\(citeKey))"
+        case .preprintUpgrade:
+            if let rec = matchedRecord, let up = rec.publishedUpgradeVenue {
+                return "检出同行评审正式版：\(up) \(rec.publishedUpgradeYear ?? rec.year)"
+            }
+            return "可升级为正式发表版本 (\(citeKey))"
+        case .metadataMismatch:
+            return "与权威索引存在元数据偏差 (\(citeKey))"
+        case .retracted:
+            return "已撤稿文献告警 (\(citeKey))"
+        case .ghostPaper:
+            return "已拦截幽灵/幻觉引用 (\(citeKey))"
+        case .orphanCite:
+            return "孤立引用键 (\(citeKey))"
+        }
+    }
+
+    public func localizedDetail(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return detail }
+        if let detailZh, !detailZh.isEmpty { return detailZh }
+        switch kind {
+        case .verified:
+            let doiPart = matchedRecord?.doi.map { "DOI \($0)" } ?? "题名与作者元数据已交叉核实"
+            return hasLocalPDFEvidence ? "\(doiPart) · 已建立本地 PDF 索引" : doiPart
+        case .preprintUpgrade:
+            if let up = matchedRecord?.publishedUpgradeVenue {
+                return "当前以 arXiv 预印本形式引用；权威索引显示其正式版已发表于 \(up)。"
+            }
+            return detail
+        case .metadataMismatch:
+            return detail.replacingOccurrences(of: "Discrepancy detected:", with: "检测到元数据不一致：")
+        case .retracted:
+            return "Crossref / OpenAlex 存在正式撤稿通知，严禁作为有效论据引用。"
+        case .ghostPaper:
+            return "Crossref、OpenAlex 与 arXiv 均无匹配记录；MCP 写入门禁返回 ERR_UNVERIFIED_CITATION。"
+        case .orphanCite:
+            return lineNumbers.isEmpty
+                ? "存在于 .bib 文件中，但正文从未通过 \\cite{} 或 @key 引用。"
+                : "正文第 \(lineNumbers.map(String.init).joined(separator: ", ")) 行引用了该键，但 .bib 中缺失定义。"
+        }
     }
 }
 
@@ -258,14 +331,47 @@ public struct WritingLintFinding: Identifiable, Sendable, Equatable, Codable {
     public let lineNumber: Int
     public let matchedText: String
     public let suggestion: String
+    public let matchedTextZh: String?
+    public let suggestionZh: String?
 
-    public init(ruleId: String, category: String, lineNumber: Int, matchedText: String, suggestion: String) {
+    public init(
+        ruleId: String,
+        category: String,
+        lineNumber: Int,
+        matchedText: String,
+        suggestion: String,
+        matchedTextZh: String? = nil,
+        suggestionZh: String? = nil
+    ) {
         self.id = "\(ruleId)-L\(lineNumber)-\(matchedText.prefix(12))"
         self.ruleId = ruleId
         self.category = category
         self.lineNumber = lineNumber
         self.matchedText = matchedText
         self.suggestion = suggestion
+        self.matchedTextZh = matchedTextZh
+        self.suggestionZh = suggestionZh
+    }
+
+    public func categoryLabel(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return category }
+        switch category {
+        case "anti-ai": return "去 AI 套话"
+        case "punctuation": return "破折号密度"
+        case "cross-ref": return "孤立图表"
+        case "acronym": return "未定义缩略语"
+        default: return category
+        }
+    }
+
+    public func localizedMatchedText(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return matchedText }
+        return matchedTextZh ?? matchedText
+    }
+
+    public func localizedSuggestion(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return suggestion }
+        return suggestionZh ?? suggestion
     }
 }
 

@@ -6,17 +6,19 @@ import SwiftUI
 @main
 struct CiteStudioApp: App {
     @StateObject private var session: CiteStudioWorkspaceSession
+    @StateObject private var localizer = AppLocalizer.shared
 
     init() {
         let args = CommandLine.arguments
 
         if let idx = args.firstIndex(of: "--export-screenshots"), idx + 1 < args.count {
             let outURL = URL(fileURLWithPath: args[idx + 1])
+            let exportLang = AppLanguage.parseCLIArguments(args) ?? .en
             do {
                 try MainActor.assumeIsolated {
-                    try CiteStudioScreenshotExporter.exportMarketingScreenshots(to: outURL)
+                    try CiteStudioScreenshotExporter.exportMarketingScreenshots(to: outURL, language: exportLang)
                 }
-                print("Exported 2x Retina screenshots to \(outURL.path)")
+                print("Exported 2x Retina screenshots (\(exportLang.rawValue)) to \(outURL.path)")
                 exit(0)
             } catch {
                 fputs("Screenshot export failed: \(error.localizedDescription)\n", stderr)
@@ -48,9 +50,26 @@ struct CiteStudioApp: App {
 
     var body: some Scene {
         Window("CiteStudio", id: "main") {
-            StudioThreePaneView(session: session)
+            StudioThreePaneView(session: session, localizer: localizer)
         }
         .defaultSize(width: 1260, height: 760)
+        .commands {
+            CommandMenu(localizer.L("Language", "语言")) {
+                Button("切换语言 / Toggle Language") {
+                    localizer.toggle()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("简体中文 (中文)") {
+                    localizer.setLanguage(.zhHans)
+                }
+                Button("English (EN)") {
+                    localizer.setLanguage(.en)
+                }
+            }
+        }
     }
 
     private static func runHeadlessCLI(sub: String, args: [String], startIdx: Int) -> Never {
@@ -88,7 +107,7 @@ struct CiteStudioApp: App {
         case "status":
             let tec = TectonicRunner.detectBinary()?.path ?? "not installed"
             let typ = TypstRunner.detectBinary()?.path ?? "not installed"
-            print("CiteStudio 0.1.0 | Tectonic: \(tec) | Typst: \(typ)")
+            print("CiteStudio 0.2.0 | Tectonic: \(tec) | Typst: \(typ)")
             exit(0)
 
         default:

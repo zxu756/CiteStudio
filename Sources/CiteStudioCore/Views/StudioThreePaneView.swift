@@ -4,9 +4,12 @@ import SwiftUI
 /// Left: Outline & Bibliography Folio | Center: LaTeX/Typst Editor | Right: SyncTeX PDF & Citation Firewall.
 public struct StudioThreePaneView: View {
     @ObservedObject var session: CiteStudioWorkspaceSession
+    @ObservedObject var localizer: AppLocalizer
 
-    public init(session: CiteStudioWorkspaceSession) {
+    @MainActor
+    public init(session: CiteStudioWorkspaceSession, localizer: AppLocalizer? = nil) {
         self.session = session
+        self.localizer = localizer ?? .shared
     }
 
     public var body: some View {
@@ -24,7 +27,7 @@ public struct StudioThreePaneView: View {
 
                 Rectangle().fill(CiteStudioTheme.spineRule).frame(width: 1)
 
-                ManuscriptEditorView(session: session)
+                ManuscriptEditorView(session: session, localizer: localizer)
                     .frame(width: 506)
                     .frame(maxHeight: .infinity)
 
@@ -55,9 +58,11 @@ public struct StudioThreePaneView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("CiteStudio")
                     .font(.system(size: 17, weight: .bold, design: .serif))
-                Text("Zero-hallucination LaTeX & Typst evidence IDE")
+                Text(localizer.L("Zero-hallucination LaTeX & Typst evidence IDE", "零幻觉 LaTeX 与 Typst 学术证据写作台"))
                     .font(.system(size: 12))
+                    .tracking(0)
                     .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
             Spacer()
@@ -68,8 +73,9 @@ public struct StudioThreePaneView: View {
                     Button {
                         session.rightTab = tab
                     } label: {
-                        Text(tab.rawValue)
+                        Text(tab.label(in: localizer.language))
                             .font(.system(size: 12, weight: active ? .semibold : .medium))
+                            .tracking(0)
                             .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 11)
                             .padding(.vertical, 5)
@@ -81,11 +87,14 @@ public struct StudioThreePaneView: View {
                 }
             }
 
+            CiteStudioLanguageTogglePill(localizer: localizer)
+
             Button {
                 Task { await session.refreshAudit() }
             } label: {
-                Text("Verify Citations")
+                Text(localizer.L("Verify Citations", "核验引文"))
                     .font(.system(size: 12, weight: .semibold))
+                    .tracking(0)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -98,8 +107,9 @@ public struct StudioThreePaneView: View {
             Button {
                 session.compileLivePDF()
             } label: {
-                Text("Compile PDF")
+                Text(localizer.L("Compile PDF", "编译 PDF"))
                     .font(.system(size: 12, weight: .semibold))
+                    .tracking(0)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -115,34 +125,44 @@ public struct StudioThreePaneView: View {
     }
 
     private var statusTelemetryStrip: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 18) {
             metricItem(
-                label: "Verified sources",
-                value: "\(session.verifiedCount)/\(session.bibEntries.count) indexed",
+                label: localizer.L("Verified sources", "已核验文献"),
+                value: localizer.isChinese
+                    ? "\(session.verifiedCount)/\(session.bibEntries.count) 篇已入库"
+                    : "\(session.verifiedCount)/\(session.bibEntries.count) indexed",
                 color: CiteStudioTheme.forestGreen
             )
             dividerDot
             metricItem(
-                label: "Ghost / Retracted blocked",
-                value: "\(session.blockedCount) blocked",
+                label: localizer.L("Ghost / Retracted blocked", "幽灵 / 撤稿拦截"),
+                value: localizer.isChinese
+                    ? "已拦截 \(session.blockedCount) 处"
+                    : "\(session.blockedCount) blocked",
                 color: session.blockedCount > 0 ? CiteStudioTheme.exLibrisBurgundy : CiteStudioTheme.forestGreen
             )
             dividerDot
             metricItem(
-                label: "arXiv -> Venue upgrades",
-                value: "\(session.upgradeAvailableKeys.count) ready",
+                label: localizer.L("arXiv -> Venue upgrades", "预印本转正式版"),
+                value: localizer.isChinese
+                    ? "\(session.upgradeAvailableKeys.count) 处可升级"
+                    : "\(session.upgradeAvailableKeys.count) ready",
                 color: CiteStudioTheme.amberGold
             )
             dividerDot
             metricItem(
-                label: "Prose & float lints",
-                value: "\(session.lintFindings.count) items",
+                label: localizer.L("Prose & float lints", "行文与图表体检"),
+                value: localizer.isChinese
+                    ? "\(session.lintFindings.count) 项提示"
+                    : "\(session.lintFindings.count) items",
                 color: CiteStudioTheme.oxfordNavy
             )
             Spacer()
-            Text(session.compilerStatusText)
+            Text(session.localizedCompilerStatus(in: localizer.language))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 7)
@@ -159,10 +179,14 @@ public struct StudioThreePaneView: View {
         HStack(spacing: 6) {
             Text(label + ":")
                 .font(.system(size: 11.5))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                .fixedSize(horizontal: true, vertical: false)
             Text(value)
                 .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                .tracking(0)
                 .foregroundStyle(color)
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -170,8 +194,9 @@ public struct StudioThreePaneView: View {
 
     private var leftFolioRail: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Bibliography Folio (references.bib)")
+            Text(localizer.L("Bibliography Folio (references.bib)", "参考文献案卷 (references.bib)"))
                 .font(.system(size: 11.5, weight: .bold))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.carbonInk)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -200,9 +225,14 @@ public struct StudioThreePaneView: View {
                                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
                         }
                     }
-                    Text("\(entry.firstAuthorSurname) et al. · \(shortVenue(entry.venue))")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    Text(
+                        localizer.isChinese
+                            ? "\(entry.firstAuthorSurname) 等 · \(shortVenue(entry.venue))"
+                            : "\(entry.firstAuthorSurname) et al. · \(shortVenue(entry.venue))"
+                    )
+                    .font(.system(size: 10.5))
+                    .tracking(0)
+                    .foregroundStyle(CiteStudioTheme.marginaliaGrey)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -211,8 +241,9 @@ public struct StudioThreePaneView: View {
                 Rectangle().fill(CiteStudioTheme.spineRule.opacity(0.65)).frame(height: 1)
             }
 
-            Text("Manuscript Outline")
+            Text(localizer.L("Manuscript Outline", "文稿章节大纲"))
                 .font(.system(size: 11.5, weight: .bold))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.oxfordNavy)
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
@@ -236,9 +267,11 @@ public struct StudioThreePaneView: View {
 
             HStack(spacing: 6) {
                 Circle().fill(CiteStudioTheme.forestGreen).frame(width: 6, height: 6)
-                Text("Offline SQLite FTS5 + Firewall")
+                Text(localizer.L("Offline SQLite FTS5 + Firewall", "离线 SQLite FTS5 索引 + 引文防火墙"))
                     .font(.system(size: 10.5, design: .monospaced))
+                    .tracking(0)
                     .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(14)
         }
@@ -249,17 +282,19 @@ public struct StudioThreePaneView: View {
     private var rightPane: some View {
         switch session.rightTab {
         case .pdfPreview:
-            SyncedPDFPreview(session: session)
+            SyncedPDFPreview(session: session, localizer: localizer)
         case .firewallDrawer:
-            FirewallAuditDrawer(session: session)
+            FirewallAuditDrawer(session: session, localizer: localizer)
         }
     }
 
     private func shortVenue(_ raw: String?) -> String {
-        guard let v = raw, !v.isEmpty else { return "Unindexed" }
+        guard let v = raw, !v.isEmpty else {
+            return localizer.L("Unindexed", "未入库")
+        }
         if v.contains("Neural Information Processing") { return "NeurIPS" }
-        if v.contains("arXiv") { return "arXiv Preprint" }
-        if v.contains("Synthetic Preprints") { return "Unverified" }
+        if v.contains("arXiv") { return localizer.L("arXiv Preprint", "arXiv 预印本") }
+        if v.contains("Synthetic Preprints") { return localizer.L("Unverified", "未核验来源") }
         return v
     }
 }

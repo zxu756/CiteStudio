@@ -31,7 +31,7 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         let encoded = doi.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? doi
         guard let url = URL(string: "https://api.crossref.org/works/\(encoded)") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 8)
-        req.setValue("CiteStudio/0.1.0 (Academic Citation Firewall)", forHTTPHeaderField: "User-Agent")
+        req.setValue("CiteStudio/0.2.0 (Academic Citation Firewall)", forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -47,7 +47,7 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         ]
         guard let url = comps.url else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 8)
-        req.setValue("CiteStudio/0.1.0 (Academic Citation Firewall)", forHTTPHeaderField: "User-Agent")
+        req.setValue("CiteStudio/0.2.0 (Academic Citation Firewall)", forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
