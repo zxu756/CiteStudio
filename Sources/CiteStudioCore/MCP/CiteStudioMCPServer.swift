@@ -39,7 +39,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             return encodeResponse(id: id, result: [
                 "protocolVersion": "2024-11-05",
                 "capabilities": ["tools": [:]],
-                "serverInfo": ["name": "citestudio-firewall-mcp", "version": "0.1.0"]
+                "serverInfo": ["name": "citestudio-firewall-mcp", "version": "0.2.0"]
             ])
 
         case "notifications/initialized":

@@ -1,6 +1,8 @@
-# CiteStudio
+# CiteStudio `v0.2.0`
 
-**Local-first, zero-hallucination LaTeX & Typst academic evidence IDE for macOS** — combining `Tectonic` (`--synctex`) + `Typst` dual compilation, a zero-API-key **Citation Firewall** (Crossref + OpenAlex + SQLite offline cache), `PDFKit` + SQLite FTS5 `BM25` claim-to-PDF provenance binding, deterministic academic prose linting, and a hardware-gated MCP server (`ERR_UNVERIFIED_CITATION`).
+**English** | **[简体中文](README.zh-CN.md)**
+
+**Local-first, zero-hallucination LaTeX & Typst academic evidence IDE for macOS (with Live `中文 / EN` Bilingual UI)** — combining `Tectonic` (`--synctex`) + `Typst` dual compilation, a zero-API-key **Citation Firewall** (Crossref + OpenAlex + SQLite offline cache), `PDFKit` + SQLite FTS5 `BM25` claim-to-PDF provenance binding, deterministic academic prose linting, instant in-app **`中文 | EN`** language switching (`⇧⌘L`), and a hardware-gated MCP server (`ERR_UNVERIFIED_CITATION`).
 
 ![CiteStudio Main Workspace](docs/screenshot-main.png)
 

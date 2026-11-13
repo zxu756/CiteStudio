@@ -5,9 +5,12 @@ import SwiftUI
 /// and provides a faithful SwiftUI line-numbered raster view when `isSnapshotMode` is enabled.
 public struct ManuscriptEditorView: View {
     @ObservedObject var session: CiteStudioWorkspaceSession
+    @ObservedObject var localizer: AppLocalizer
 
-    public init(session: CiteStudioWorkspaceSession) {
+    @MainActor
+    public init(session: CiteStudioWorkspaceSession, localizer: AppLocalizer? = nil) {
         self.session = session
+        self.localizer = localizer ?? .shared
     }
 
     public var body: some View {
@@ -36,12 +39,14 @@ public struct ManuscriptEditorView: View {
             Text(session.manuscriptFilename)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(CiteStudioTheme.carbonInk)
-            Text("LaTeX / SyncTeX")
+            Text(localizer.L("LaTeX / SyncTeX", "LaTeX / SyncTeX 双向同步"))
                 .font(.system(size: 11))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
             Spacer()
-            Text("Line \(session.activeSourceLine)")
+            Text(localizer.isChinese ? "第 \(session.activeSourceLine) 行" : "Line \(session.activeSourceLine)")
                 .font(.system(size: 11, design: .monospaced))
+                .tracking(0)
                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
         }
         .padding(.horizontal, 14)
@@ -70,9 +75,16 @@ public struct ManuscriptEditorView: View {
                         if hasGhost {
                             HStack(spacing: 5) {
                                 Circle().fill(CiteStudioTheme.exLibrisBurgundy).frame(width: 5, height: 5)
-                                Text("Ghost citation 'smith2025hallucinated' — blocked by Citation Firewall")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(CiteStudioTheme.exLibrisBurgundy)
+                                Text(
+                                    localizer.L(
+                                        "Ghost citation 'smith2025hallucinated' — blocked by Citation Firewall",
+                                        "幽灵引用 'smith2025hallucinated'：已被引文防火墙拦截"
+                                    )
+                                )
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(0)
+                                .foregroundStyle(CiteStudioTheme.exLibrisBurgundy)
+                                .fixedSize(horizontal: true, vertical: false)
                             }
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
@@ -81,9 +93,16 @@ public struct ManuscriptEditorView: View {
                         } else if hasUpgrade {
                             HStack(spacing: 5) {
                                 Circle().fill(CiteStudioTheme.amberGold).frame(width: 5, height: 5)
-                                Text("arXiv preprint cited — NeurIPS 2022 version available (1-click upgrade)")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(CiteStudioTheme.amberGold)
+                                Text(
+                                    localizer.L(
+                                        "arXiv preprint cited — NeurIPS 2022 version available (1-click upgrade)",
+                                        "已引用 arXiv 预印本：检出 NeurIPS 2022 正式版（支持一键升级）"
+                                    )
+                                )
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(0)
+                                .foregroundStyle(CiteStudioTheme.amberGold)
+                                .fixedSize(horizontal: true, vertical: false)
                             }
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)

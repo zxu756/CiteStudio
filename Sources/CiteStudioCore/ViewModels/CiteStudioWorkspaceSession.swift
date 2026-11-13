@@ -9,6 +9,15 @@ public enum CiteStudioRightTab: String, CaseIterable, Identifiable, Sendable {
     case firewallDrawer = "Citation Firewall & Lint"
 
     public var id: String { rawValue }
+
+    public func label(in language: AppLanguage) -> String {
+        switch self {
+        case .pdfPreview:
+            return language == .zhHans ? "PDF 预览与原文溯源" : "PDF & Provenance"
+        case .firewallDrawer:
+            return language == .zhHans ? "引文防火墙与行文体检" : "Citation Firewall & Lint"
+        }
+    }
 }
 
 /// Deterministic offline transport used by preview fixtures and unit tests.
@@ -147,6 +156,28 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
         }
     }
 
+    public func localizedCompilerStatus(in language: AppLanguage) -> String {
+        guard language == .zhHans else { return compilerStatusText }
+        if compilerStatusText == "Tectonic --synctex ready" {
+            return "Tectonic --synctex 已就绪"
+        }
+        if compilerStatusText == "Tectonic not detected" {
+            return "未检测到本地 Tectonic"
+        }
+        if compilerStatusText == "Tectonic 0.15 (--synctex) · 318 ms" {
+            return "Tectonic 0.15 (--synctex) · 耗时 318 ms"
+        }
+        if compilerStatusText.hasPrefix("Compiled via ") {
+            return compilerStatusText
+                .replacingOccurrences(of: "Compiled via ", with: "已通过 ")
+                .replacingOccurrences(of: " in ", with: " 编译，耗时 ")
+        }
+        if compilerStatusText.contains("Compilation failed") {
+            return compilerStatusText.replacingOccurrences(of: "Compilation failed", with: "编译失败")
+        }
+        return compilerStatusText
+    }
+
     // MARK: - Deterministic Preview & Screenshot Fixture
 
     public static func preview(rightTab: CiteStudioRightTab = .pdfPreview) -> CiteStudioWorkspaceSession {
@@ -187,6 +218,8 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
                 kind: .verified,
                 headline: "Verified via Crossref (NeurIPS, 2017)",
                 detail: "DOI 10.5555/3295222.3295349 · Local PDF indexed",
+                headlineZh: "已通过 Crossref 核验（NeurIPS, 2017）",
+                detailZh: "DOI 10.5555/3295222.3295349 · 本地 PDF 已建索引",
                 matchedRecord: vaswaniRec,
                 lineNumbers: [9],
                 hasLocalPDFEvidence: true
@@ -196,6 +229,8 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
                 kind: .preprintUpgrade,
                 headline: "Upgrade available: NeurIPS 2022",
                 detail: "Cited as arXiv:2205.14135; official camera-ready published in NeurIPS 2022.",
+                headlineZh: "可升级正式版：NeurIPS 2022",
+                detailZh: "当前引用 arXiv:2205.14135 预印本；官方正式版已发表于 NeurIPS 2022。",
                 matchedRecord: daoRec,
                 upgradedBibTeX: BibTeXParser.formatUpgradedBibTeX(
                     entry: session.bibEntries[1],
@@ -209,6 +244,8 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
                 kind: .verified,
                 headline: "Verified via Crossref (ACM SOSP, 2023)",
                 detail: "DOI 10.1145/3600006.3613165 · Local PDF indexed",
+                headlineZh: "已通过 Crossref 核验（ACM SOSP, 2023）",
+                detailZh: "DOI 10.1145/3600006.3613165 · 本地 PDF 已建索引",
                 matchedRecord: kwonRec,
                 lineNumbers: [13],
                 hasLocalPDFEvidence: true
@@ -218,6 +255,8 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
                 kind: .ghostPaper,
                 headline: "Ghost citation blocked (smith2025hallucinated)",
                 detail: "Zero matches in Crossref, OpenAlex, or arXiv. MCP gate returns ERR_UNVERIFIED_CITATION.",
+                headlineZh: "已拦截幽灵引用 (smith2025hallucinated)",
+                detailZh: "Crossref、OpenAlex 与 arXiv 均无匹配记录；MCP 写入门禁返回 ERR_UNVERIFIED_CITATION。",
                 matchedRecord: nil,
                 lineNumbers: [16],
                 hasLocalPDFEvidence: false
@@ -295,20 +334,22 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
 
 public enum CiteStudioScreenshotExporter {
     @MainActor
-    public static func exportMarketingScreenshots(to directory: URL) throws {
+    public static func exportMarketingScreenshots(to directory: URL, language: AppLanguage = .en) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let localizer = AppLocalizer(language: language)
+        let suffix = language == .zhHans ? "-zh" : ""
 
         let mainSession = CiteStudioWorkspaceSession.preview(rightTab: .pdfPreview)
-        let mainView = StudioThreePaneView(session: mainSession)
+        let mainView = StudioThreePaneView(session: mainSession, localizer: localizer)
             .frame(width: 1260, height: 760)
             .environment(\.colorScheme, .light)
-        try renderPNG(view: mainView, to: directory.appendingPathComponent("screenshot-main.png"))
+        try renderPNG(view: mainView, to: directory.appendingPathComponent("screenshot-main\(suffix).png"))
 
         let firewallSession = CiteStudioWorkspaceSession.preview(rightTab: .firewallDrawer)
-        let firewallView = StudioThreePaneView(session: firewallSession)
+        let firewallView = StudioThreePaneView(session: firewallSession, localizer: localizer)
             .frame(width: 1260, height: 760)
             .environment(\.colorScheme, .light)
-        try renderPNG(view: firewallView, to: directory.appendingPathComponent("screenshot-firewall.png"))
+        try renderPNG(view: firewallView, to: directory.appendingPathComponent("screenshot-firewall\(suffix).png"))
     }
 
     @MainActor
