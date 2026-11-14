@@ -17,6 +17,24 @@ public enum TypstRunner {
 
     public static func compile(typFile: URL, outputPDF: URL? = nil) -> CompileResult {
         let start = DispatchTime.now()
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: typFile.path, isDirectory: &isDir), !isDir.boolValue else {
+            return CompileResult(
+                engine: "typst",
+                succeeded: false,
+                pdfURL: nil,
+                synctexURL: nil,
+                durationMs: 0,
+                diagnostics: [
+                    CompilerDiagnostic(
+                        file: typFile.lastPathComponent,
+                        line: 1,
+                        message: "Input file does not exist: \(typFile.path)",
+                        isError: true
+                    )
+                ]
+            )
+        }
         let targetPDF = outputPDF ?? typFile.deletingPathExtension().appendingPathExtension("pdf")
         guard let bin = detectBinary() else {
             return CompileResult(

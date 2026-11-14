@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Wraps AppKit `NSTextView` for live LaTeX/Typst editing with GhostPaper burgundy squiggly underlines,
-/// and provides a faithful SwiftUI line-numbered raster view when `isSnapshotMode` is enabled.
+/// Wraps AppKit `NSTextView` for LaTeX/Typst editing with GhostPaper underlines,
+/// and provides an explicit `[DEMO]` snapshot raster view when `isSnapshotMode` is enabled.
 public struct ManuscriptEditorView: View {
     @ObservedObject var session: CiteStudioWorkspaceSession
     @ObservedObject var localizer: AppLocalizer
@@ -20,6 +20,8 @@ public struct ManuscriptEditorView: View {
 
             if session.isSnapshotMode {
                 snapshotManuscriptCanvas
+            } else if session.manuscriptText.isEmpty && !session.isDemoMode {
+                emptyEditorPlaceholder
             } else {
                 AppKitTextViewRepresentable(
                     text: $session.manuscriptText,
@@ -31,23 +33,61 @@ public struct ManuscriptEditorView: View {
         .background(CiteStudioTheme.manuscriptSheet)
     }
 
+    private var emptyEditorPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(localizer.L("Empty Workspace", "空工作区"))
+                .font(.system(size: 14, weight: .bold, design: .serif))
+                .foregroundStyle(CiteStudioTheme.carbonInk)
+
+            Text(
+                localizer.L(
+                    "No manuscript or bibliography is loaded by default. Opening local project folders in the desktop window is scheduled for M3; use `--cli verify <refs.bib>`, `--cli lint <file.tex>`, `--cli compile <file.tex>`, or `--mcp` for local files, or click \"Load Demo\" to inspect sample [DEMO] data.",
+                    "桌面界面默认不载入任何演示文稿或参考文献。在窗口中直接打开本地项目目录排在 M3；处理真实本地文件请使用 `--cli verify <refs.bib>`、`--cli lint <file.tex>`、`--cli compile <file.tex>` 或 `--mcp`，也可点击顶栏“载入演示”查看带 [DEMO] 标记的示例数据。"
+                )
+            )
+            .font(.system(size: 11.5))
+            .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                session.loadDemo()
+            } label: {
+                Text(localizer.L("Load Demo ([DEMO])", "载入演示数据 ([DEMO])"))
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(CiteStudioTheme.oxfordNavy)
+                    .foregroundStyle(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(CiteStudioTheme.manuscriptSheet)
+    }
+
     private var editorSubheader: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(CiteStudioTheme.oxfordNavy)
-            Text(session.manuscriptFilename)
+            Text(session.manuscriptFilename.isEmpty ? localizer.L("No file loaded", "未载入文件") : session.manuscriptFilename)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(CiteStudioTheme.carbonInk)
-            Text(localizer.L("LaTeX / SyncTeX", "LaTeX / SyncTeX 双向同步"))
+            Text(localizer.L("LaTeX / Typst Editor", "LaTeX / Typst 编辑器"))
                 .font(.system(size: 11))
                 .tracking(0)
                 .foregroundStyle(CiteStudioTheme.marginaliaGrey)
             Spacer()
-            Text(localizer.isChinese ? "第 \(session.activeSourceLine) 行" : "Line \(session.activeSourceLine)")
-                .font(.system(size: 11, design: .monospaced))
-                .tracking(0)
-                .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+            if !session.manuscriptText.isEmpty {
+                Text(localizer.isChinese ? "第 \(session.activeSourceLine) 行" : "Line \(session.activeSourceLine)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .tracking(0)
+                    .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -59,8 +99,8 @@ public struct ManuscriptEditorView: View {
         return VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
                 let lineNo = idx + 1
-                let hasGhost = session.ghostOrRetractedKeys.contains { line.contains($0) }
-                let hasUpgrade = session.upgradeAvailableKeys.contains { line.contains($0) }
+                let matchedGhostKey = session.ghostOrRetractedKeys.first { line.contains($0) }
+                let matchedUpgradeKey = session.upgradeAvailableKeys.first { line.contains($0) }
                 HStack(alignment: .top, spacing: 10) {
                     Text(String(format: "%2d", lineNo))
                         .font(.system(size: 11, design: .monospaced))
@@ -72,13 +112,13 @@ public struct ManuscriptEditorView: View {
                             .font(.system(size: 11.5, design: .monospaced))
                             .fixedSize(horizontal: false, vertical: true)
 
-                        if hasGhost {
+                        if let ghostKey = matchedGhostKey {
                             HStack(spacing: 5) {
                                 Circle().fill(CiteStudioTheme.exLibrisBurgundy).frame(width: 5, height: 5)
                                 Text(
                                     localizer.L(
-                                        "Ghost citation 'smith2025hallucinated' — blocked by Citation Firewall",
-                                        "幽灵引用 'smith2025hallucinated'：已被引文防火墙拦截"
+                                        "[DEMO] Blocked citation '\(ghostKey)' — Citation Firewall",
+                                        "[演示] 已拦截引用 '\(ghostKey)'：引文防火墙"
                                     )
                                 )
                                 .font(.system(size: 10, weight: .semibold))
@@ -90,13 +130,13 @@ public struct ManuscriptEditorView: View {
                             .padding(.vertical, 2)
                             .background(CiteStudioTheme.exLibrisBurgundy.opacity(0.10))
                             .clipShape(RoundedRectangle(cornerRadius: 4))
-                        } else if hasUpgrade {
+                        } else if let upKey = matchedUpgradeKey {
                             HStack(spacing: 5) {
                                 Circle().fill(CiteStudioTheme.amberGold).frame(width: 5, height: 5)
                                 Text(
                                     localizer.L(
-                                        "arXiv preprint cited — NeurIPS 2022 version available (1-click upgrade)",
-                                        "已引用 arXiv 预印本：检出 NeurIPS 2022 正式版（支持一键升级）"
+                                        "[DEMO] Preprint '\(upKey)' — peer-reviewed venue available",
+                                        "[演示] 预印本 '\(upKey)'：检出同行评审正式版"
                                     )
                                 )
                                 .font(.system(size: 10, weight: .semibold))
@@ -115,9 +155,7 @@ public struct ManuscriptEditorView: View {
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    lineNo == 12
-                        ? CiteStudioTheme.forestGreen.opacity(0.08)
-                        : (hasGhost ? CiteStudioTheme.exLibrisBurgundy.opacity(0.05) : Color.clear)
+                    matchedGhostKey != nil ? CiteStudioTheme.exLibrisBurgundy.opacity(0.05) : Color.clear
                 )
             }
             Spacer(minLength: 0)

@@ -1,0 +1,181 @@
+import Darwin
+import Foundation
+import Testing
+@testable import CiteStudioCore
+
+@Suite("CLITests", .timeLimit(.minutes(1)))
+struct CLITests {
+
+    private static func locateCiteStudioBinary() throws -> URL {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let candidates = [
+            root.appendingPathComponent(".build/debug/CiteStudio"),
+            root.appendingPathComponent(".build/arm64-apple-macosx/debug/CiteStudio"),
+            root.appendingPathComponent(".build/out/Products/Debug/CiteStudio")
+        ]
+        for url in candidates where FileManager.default.isExecutableFile(atPath: url.path) {
+            return url
+        }
+        throw NSError(domain: "CLITests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "CiteStudio debug binary not found; build target CiteStudio before running subprocess smoke check."
+        ])
+    }
+
+    private static func runSubprocessCLI(
+        args: [String],
+        extraEnv: [String: String] = [:],
+        timeoutSeconds: TimeInterval = 8.0
+    ) throws -> (code: Int32, stdout: String, stderr: String) {
+        let bin = try locateCiteStudioBinary()
+        let tmpHome = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_home_\(UUID().uuidString)")
+        let tmpCache = tmpHome.appendingPathComponent("cache")
+        try FileManager.default.createDirectory(at: tmpCache, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpHome) }
+
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = tmpHome.path
+        env["CITESTUDIO_CACHE_DIR"] = tmpCache.path
+        env["CITESTUDIO_EPHEMERAL_DEFAULTS"] = "1"
+        for (k, v) in extraEnv { env[k] = v }
+
+        let proc = Process()
+        proc.executableURL = bin
+        proc.arguments = args
+        proc.environment = env
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+
+        final class DataBox: @unchecked Sendable {
+            var out = Data()
+            var err = Data()
+        }
+        let box = DataBox()
+        let group = DispatchGroup()
+
+        try proc.run()
+        group.enter()
+        DispatchQueue.global().async {
+            box.out = outPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            box.err = errPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while proc.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if proc.isRunning {
+            kill(proc.processIdentifier, SIGKILL)
+            proc.waitUntilExit()
+            throw NSError(domain: "CLITests", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "CLI subprocess timed out after \(timeoutSeconds)s for args: \(args)"
+            ])
+        }
+        proc.waitUntilExit()
+        _ = group.wait(timeout: .now() + 2.0)
+
+        return (
+            proc.terminationStatus,
+            String(data: box.out, encoding: .utf8) ?? "",
+            String(data: box.err, encoding: .utf8) ?? ""
+        )
+    }
+
+    @Test("C10 (Row 6): --cli lint and --cli compile fail with non-zero exit code and clear bilingual stderr message on missing files, and unknown subcommands exit 2")
+    func c10MissingFileAndUnknownSubcommandReturnNonZero() async throws {
+        let missingTex = "/tmp/citestudio_definitely_nonexistent_\(UUID().uuidString).tex"
+
+        let lintEN = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "lint", missingTex, "--lang", "en"])
+        #expect(lintEN.exitCode != 0)
+        #expect(lintEN.stderr.lowercased().contains("does not exist"))
+
+        let lintZH = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "lint", missingTex, "--lang", "zh"])
+        #expect(lintZH.exitCode != 0)
+        #expect(lintZH.stderr.contains("不存在"))
+
+        let compileEN = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "compile", missingTex, "--lang", "en"])
+        #expect(compileEN.exitCode != 0)
+        #expect(compileEN.stderr.lowercased().contains("does not exist"))
+
+        let compileZH = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "compile", missingTex, "--lang", "zh"])
+        #expect(compileZH.exitCode != 0)
+        #expect(compileZH.stderr.contains("不存在"))
+
+        let unknown = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "nonexistent-subcommand", "--lang", "en"])
+        #expect(unknown.exitCode == 2)
+
+        let emptyCLI = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "--lang", "zh"])
+        #expect(emptyCLI.exitCode == 2)
+
+        // Real executable subprocess smoke check (verifies CiteStudioMain exits cleanly before NSApplication)
+        let subLint = try Self.runSubprocessCLI(args: ["--cli", "lint", missingTex, "--lang", "en"])
+        #expect(subLint.code == 2)
+        #expect(subLint.stderr.lowercased().contains("does not exist"))
+
+        let subUnknown = try Self.runSubprocessCLI(args: ["--cli", "bogus", "--lang", "zh"])
+        #expect(subUnknown.code == 2)
+        #expect(subUnknown.stderr.contains("未知"))
+    }
+
+    @Test("C9 + Item 2: --cli verify <refs.bib> shares firewall engine, exits 0 only when all Verified, exits non-zero otherwise, and --cli clear-cache purges SQLite cache")
+    func c9VerifyCommandAndClearCache() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_v_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let server = try LoopbackScholarServer(initialMode: .healthy)
+        defer { server.stop() }
+        let cacheDir = tmp.appendingPathComponent("cache")
+        let env = [
+            "CITESTUDIO_CROSSREF_BASE_URL": server.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": server.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": cacheDir.path
+        ]
+
+        let cleanBib = tmp.appendingPathComponent("clean.bib")
+        try """
+        @article{real_lecun, author = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey}, title = {Deep learning}, journal = {Nature}, year = {2015}, doi = {10.1038/nature14539}}
+        """.write(to: cleanBib, atomically: true, encoding: .utf8)
+
+        let okEN = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "verify", cleanBib.path, "--lang", "en"], environment: env)
+        #expect(okEN.exitCode == 0)
+        #expect(okEN.stdout.contains("[Verified] real_lecun"))
+
+        let clearZH = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "clear-cache", "--lang", "zh"], environment: env)
+        #expect(clearZH.exitCode == 0)
+        #expect(clearZH.stdout.contains("已清空 1 条"))
+
+        // Mixed bib with fabricated DOI -> MUST exit non-zero!
+        let mixedBib = tmp.appendingPathComponent("mixed.bib")
+        try """
+        @article{real_lecun, author = {LeCun, Yann}, title = {Deep learning}, journal = {Nature}, year = {2015}, doi = {10.1038/nature14539}}
+        @article{fake_one, author = {Nobody, X.}, title = {Fake}, journal = {Nature}, year = {2026}, doi = {10.1038/fake.2026.99999}}
+        """.write(to: mixedBib, atomically: true, encoding: .utf8)
+
+        let failEN = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "verify", mixedBib.path, "--json", "--lang", "en"], environment: env)
+        #expect(failEN.exitCode == 1)
+        #expect(failEN.stdout.contains("GhostPaper"))
+
+        // Offline / HTTP 500 -> MUST output Unverified / 未验证 and exit non-zero!
+        server.mode = .httpStatus(500)
+        _ = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "clear-cache"], environment: env)
+        let unverifiedZH = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "verify", cleanBib.path, "--lang", "zh"], environment: env)
+        #expect(unverifiedZH.exitCode == 1)
+        #expect(unverifiedZH.stdout.contains("未验证"))
+
+        // Real executable subprocess smoke check on --cli verify
+        server.mode = .healthy
+        let subVerify = try Self.runSubprocessCLI(args: ["--cli", "verify", cleanBib.path, "--lang", "en"], extraEnv: env)
+        #expect(subVerify.code == 0)
+        #expect(subVerify.stdout.contains("Verified=1"))
+    }
+}

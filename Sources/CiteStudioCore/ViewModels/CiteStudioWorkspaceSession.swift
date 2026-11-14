@@ -5,7 +5,7 @@ import PDFKit
 import SwiftUI
 
 public enum CiteStudioRightTab: String, CaseIterable, Identifiable, Sendable {
-    case pdfPreview = "PDF & Provenance"
+    case pdfPreview = "PDF Preview"
     case firewallDrawer = "Citation Firewall & Lint"
 
     public var id: String { rawValue }
@@ -13,23 +13,10 @@ public enum CiteStudioRightTab: String, CaseIterable, Identifiable, Sendable {
     public func label(in language: AppLanguage) -> String {
         switch self {
         case .pdfPreview:
-            return language == .zhHans ? "PDF 预览与原文溯源" : "PDF & Provenance"
+            return language == .zhHans ? "PDF 预览" : "PDF Preview"
         case .firewallDrawer:
-            return language == .zhHans ? "引文防火墙与行文体检" : "Citation Firewall & Lint"
+            return language == .zhHans ? "引文核查与行文体检" : "Citation Firewall & Lint"
         }
-    }
-}
-
-/// Deterministic offline transport used by preview fixtures and unit tests.
-public struct FixtureScholarTransport: ScholarLookupTransport {
-    public let recordsByKey: [String: ScholarRecord]
-
-    public init(recordsByKey: [String: ScholarRecord]) {
-        self.recordsByKey = recordsByKey
-    }
-
-    public func lookup(entry: BibEntry) async throws -> ScholarRecord? {
-        recordsByKey[entry.citeKey]
     }
 }
 
@@ -48,36 +35,89 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
     @Published public var rightTab: CiteStudioRightTab
     @Published public var compiledPDFDocument: PDFDocument?
     @Published public var compilerStatusText: String
-    @Published public var activeSourceLine: Int = 14
+    @Published public var activeSourceLine: Int
+    @Published public private(set) var isDemoMode: Bool
     public let isSnapshotMode: Bool
 
     private var workingDirectory: URL?
     private var triangulator: ScholarTriangulator?
     private var pdfIndexer: LocalPDFIndexer?
 
+    /// Default initializer starts in a clean empty state (0 manuscript, 0 bibliography, 0 diagnostics, 0 lints).
     public init(
-        projectTitle: String = "Speculative KV-Cache Compression",
-        manuscriptFilename: String = "main.tex",
-        manuscriptText: String = CiteStudioWorkspaceSession.sampleManuscript,
-        bibText: String = CiteStudioWorkspaceSession.sampleBibTeX,
+        projectTitle: String = "",
+        manuscriptFilename: String = "",
+        manuscriptText: String = "",
+        bibText: String = "",
         rightTab: CiteStudioRightTab = .pdfPreview,
+        isDemoMode: Bool = false,
         isSnapshotMode: Bool = false
     ) {
         self.projectTitle = projectTitle
         self.manuscriptFilename = manuscriptFilename
         self.manuscriptText = manuscriptText
         self.bibText = bibText
-        self.bibEntries = BibTeXParser.parseBibTeX(bibText)
-        self.inlineCitations = BibTeXParser.extractInlineCitations(from: manuscriptText)
+        self.bibEntries = bibText.isEmpty ? [] : BibTeXParser.parseBibTeX(bibText)
+        self.inlineCitations = manuscriptText.isEmpty ? [] : BibTeXParser.extractInlineCitations(from: manuscriptText)
         self.diagnostics = []
-        self.lintFindings = WritingQualityLinter.lint(manuscript: manuscriptText)
-        self.selectedCiteKey = "dao2022flashattention"
+        self.lintFindings = manuscriptText.isEmpty ? [] : WritingQualityLinter.lint(manuscript: manuscriptText)
+        self.selectedCiteKey = nil
         self.activeEvidence = nil
         self.rightTab = rightTab
         self.compilerStatusText = TectonicRunner.detectBinary() != nil
-            ? "Tectonic --synctex ready"
+            ? "Tectonic ready"
             : "Tectonic not detected"
+        self.activeSourceLine = 1
+        self.isDemoMode = isDemoMode
         self.isSnapshotMode = isSnapshotMode
+    }
+
+    public static func demoSession(rightTab: CiteStudioRightTab = .firewallDrawer) -> CiteStudioWorkspaceSession {
+        let session = CiteStudioWorkspaceSession(rightTab: rightTab, isDemoMode: true)
+        session.loadDemo()
+        return session
+    }
+
+    public func loadDemo() {
+        isDemoMode = true
+        projectTitle = "[DEMO] Speculative KV-Cache Compression"
+        manuscriptFilename = "demo_main.tex"
+        manuscriptText = Self.sampleManuscript
+        bibText = Self.sampleBibTeX
+        bibEntries = BibTeXParser.parseBibTeX(bibText)
+        inlineCitations = BibTeXParser.extractInlineCitations(from: manuscriptText)
+        lintFindings = WritingQualityLinter.lint(manuscript: manuscriptText)
+        selectedCiteKey = bibEntries.first?.citeKey
+        activeEvidence = nil
+        compiledPDFDocument = nil
+        activeSourceLine = 1
+        // Demo entries start unverified until actually queried against an upstream registry
+        diagnostics = bibEntries.map { entry in
+            CitationDiagnostic(
+                citeKey: entry.citeKey,
+                kind: .unverified,
+                headline: "[DEMO] Sample entry not yet queried (\(entry.citeKey))",
+                detail: "Demo bibliography entry; click Verify Citations to query Crossref / OpenAlex.",
+                headlineZh: "[演示数据] 示例条目尚未联网核查 (\(entry.citeKey))",
+                detailZh: "演示参考文献条目；点击“核验引文”可向 Crossref / OpenAlex 发起实时核查。"
+            )
+        }
+    }
+
+    public func clearWorkspace() {
+        isDemoMode = false
+        projectTitle = ""
+        manuscriptFilename = ""
+        manuscriptText = ""
+        bibText = ""
+        bibEntries = []
+        inlineCitations = []
+        diagnostics = []
+        lintFindings = []
+        selectedCiteKey = nil
+        activeEvidence = nil
+        compiledPDFDocument = nil
+        activeSourceLine = 1
     }
 
     public var ghostOrRetractedKeys: Set<String> {
@@ -93,10 +133,15 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
     }
 
     public var blockedCount: Int {
-        diagnostics.filter(\.kind.isBlockingForMCP).count
+        diagnostics.filter { $0.kind == .ghostPaper || $0.kind == .retracted || $0.kind == .metadataMismatch }.count
+    }
+
+    public var unverifiedCount: Int {
+        diagnostics.filter { $0.kind == .unverified }.count
     }
 
     public var outlineSections: [(line: Int, title: String)] {
+        guard !manuscriptText.isEmpty else { return [] }
         var out: [(Int, String)] = []
         let regex = try! NSRegularExpression(pattern: #"\\(?:sub)*section\*?\{([^}]+)\}"#)
         for (i, line) in manuscriptText.components(separatedBy: .newlines).enumerated() {
@@ -109,14 +154,22 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
     }
 
     public func refreshAudit() async {
-        bibEntries = BibTeXParser.parseBibTeX(bibText)
-        inlineCitations = BibTeXParser.extractInlineCitations(from: manuscriptText)
-        lintFindings = WritingQualityLinter.lint(manuscript: manuscriptText)
+        bibEntries = bibText.isEmpty ? [] : BibTeXParser.parseBibTeX(bibText)
+        inlineCitations = manuscriptText.isEmpty ? [] : BibTeXParser.extractInlineCitations(from: manuscriptText)
+        lintFindings = manuscriptText.isEmpty ? [] : WritingQualityLinter.lint(manuscript: manuscriptText)
+
+        guard !manuscriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !bibText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            diagnostics = []
+            return
+        }
 
         if triangulator == nil {
-            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("CiteStudio", isDirectory: true)
-            triangulator = try? ScholarTriangulator(cacheDBPath: support.appendingPathComponent("scholar_cache.sqlite"))
+            let support = ScholarTriangulator.resolveCacheDirectory()
+            triangulator = try? ScholarTriangulator(
+                cacheDBPath: support.appendingPathComponent("scholar_cache.sqlite"),
+                transport: PublicScholarHTTPTransport()
+            )
             pdfIndexer = try? LocalPDFIndexer(dbURL: support.appendingPathComponent("pdf_fts5.sqlite"))
         }
         if let triangulator {
@@ -139,9 +192,14 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
     }
 
     public func compileLivePDF() {
+        guard !manuscriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            compilerStatusText = "No manuscript content to compile"
+            return
+        }
         let dir = workingDirectory ?? FileManager.default.temporaryDirectory.appendingPathComponent("CiteStudioLive", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let texURL = dir.appendingPathComponent(manuscriptFilename)
+        let targetName = manuscriptFilename.isEmpty ? "main.tex" : manuscriptFilename
+        let texURL = dir.appendingPathComponent(targetName)
         let bibURL = dir.appendingPathComponent("references.bib")
         try? manuscriptText.write(to: texURL, atomically: true, encoding: .utf8)
         try? bibText.write(to: bibURL, atomically: true, encoding: .utf8)
@@ -158,14 +216,17 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
 
     public func localizedCompilerStatus(in language: AppLanguage) -> String {
         guard language == .zhHans else { return compilerStatusText }
-        if compilerStatusText == "Tectonic --synctex ready" {
-            return "Tectonic --synctex 已就绪"
+        if compilerStatusText == "Tectonic ready" {
+            return "Tectonic 已就绪"
         }
         if compilerStatusText == "Tectonic not detected" {
             return "未检测到本地 Tectonic"
         }
-        if compilerStatusText == "Tectonic 0.15 (--synctex) · 318 ms" {
-            return "Tectonic 0.15 (--synctex) · 耗时 318 ms"
+        if compilerStatusText == "[DEMO] Sample workspace" {
+            return "[DEMO · 演示数据] 示例工作区"
+        }
+        if compilerStatusText == "No manuscript content to compile" {
+            return "当前无文稿内容可编译"
         }
         if compilerStatusText.hasPrefix("Compiled via ") {
             return compilerStatusText
@@ -178,11 +239,20 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
         return compilerStatusText
     }
 
-    // MARK: - Deterministic Preview & Screenshot Fixture
+    // MARK: - Explicit [DEMO] Screenshot Fixture
 
-    public static func preview(rightTab: CiteStudioRightTab = .pdfPreview) -> CiteStudioWorkspaceSession {
-        let session = CiteStudioWorkspaceSession(rightTab: rightTab, isSnapshotMode: true)
-        session.compilerStatusText = "Tectonic 0.15 (--synctex) · 318 ms"
+    public static func preview(rightTab: CiteStudioRightTab = .firewallDrawer) -> CiteStudioWorkspaceSession {
+        let session = CiteStudioWorkspaceSession(
+            projectTitle: "[DEMO] Speculative KV-Cache Compression",
+            manuscriptFilename: "demo_main.tex",
+            manuscriptText: Self.sampleManuscript,
+            bibText: Self.sampleBibTeX,
+            rightTab: rightTab,
+            isDemoMode: true,
+            isSnapshotMode: true
+        )
+        session.selectedCiteKey = "dao2022flashattention"
+        session.compilerStatusText = "[DEMO] Sample workspace"
 
         let vaswaniRec = ScholarRecord(
             source: "Crossref",
@@ -216,61 +286,54 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
             CitationDiagnostic(
                 citeKey: "vaswani2017attention",
                 kind: .verified,
-                headline: "Verified via Crossref (NeurIPS, 2017)",
-                detail: "DOI 10.5555/3295222.3295349 · Local PDF indexed",
-                headlineZh: "已通过 Crossref 核验（NeurIPS, 2017）",
-                detailZh: "DOI 10.5555/3295222.3295349 · 本地 PDF 已建索引",
+                headline: "[DEMO] Verified via Crossref (NeurIPS, 2017)",
+                detail: "DOI 10.5555/3295222.3295349 (demo fixture)",
+                headlineZh: "[演示] 已通过 Crossref 核验（NeurIPS, 2017）",
+                detailZh: "DOI 10.5555/3295222.3295349（演示示例数据）",
                 matchedRecord: vaswaniRec,
                 lineNumbers: [9],
-                hasLocalPDFEvidence: true
+                hasLocalPDFEvidence: false
             ),
             CitationDiagnostic(
                 citeKey: "dao2022flashattention",
                 kind: .preprintUpgrade,
-                headline: "Upgrade available: NeurIPS 2022",
-                detail: "Cited as arXiv:2205.14135; official camera-ready published in NeurIPS 2022.",
-                headlineZh: "可升级正式版：NeurIPS 2022",
-                detailZh: "当前引用 arXiv:2205.14135 预印本；官方正式版已发表于 NeurIPS 2022。",
+                headline: "[DEMO] Upgrade available: NeurIPS 2022",
+                detail: "Cited as arXiv:2205.14135; peer-reviewed version in NeurIPS 2022 (demo fixture).",
+                headlineZh: "[演示] 可升级正式版：NeurIPS 2022",
+                detailZh: "当前引用 arXiv:2205.14135 预印本；检出 NeurIPS 2022 正式版（演示示例数据）。",
                 matchedRecord: daoRec,
                 upgradedBibTeX: BibTeXParser.formatUpgradedBibTeX(
                     entry: session.bibEntries[1],
                     record: daoRec
                 ),
                 lineNumbers: [12],
-                hasLocalPDFEvidence: true
+                hasLocalPDFEvidence: false
             ),
             CitationDiagnostic(
                 citeKey: "kwon2023vllm",
                 kind: .verified,
-                headline: "Verified via Crossref (ACM SOSP, 2023)",
-                detail: "DOI 10.1145/3600006.3613165 · Local PDF indexed",
-                headlineZh: "已通过 Crossref 核验（ACM SOSP, 2023）",
-                detailZh: "DOI 10.1145/3600006.3613165 · 本地 PDF 已建索引",
+                headline: "[DEMO] Verified via Crossref (ACM SOSP, 2023)",
+                detail: "DOI 10.1145/3600006.3613165 (demo fixture)",
+                headlineZh: "[演示] 已通过 Crossref 核验（ACM SOSP, 2023）",
+                detailZh: "DOI 10.1145/3600006.3613165（演示示例数据）",
                 matchedRecord: kwonRec,
                 lineNumbers: [13],
-                hasLocalPDFEvidence: true
+                hasLocalPDFEvidence: false
             ),
             CitationDiagnostic(
                 citeKey: "smith2025hallucinated",
                 kind: .ghostPaper,
-                headline: "Ghost citation blocked (smith2025hallucinated)",
-                detail: "Zero matches in Crossref, OpenAlex, or arXiv. MCP gate returns ERR_UNVERIFIED_CITATION.",
-                headlineZh: "已拦截幽灵引用 (smith2025hallucinated)",
-                detailZh: "Crossref、OpenAlex 与 arXiv 均无匹配记录；MCP 写入门禁返回 ERR_UNVERIFIED_CITATION。",
+                headline: "[DEMO] Confirmed not found (smith2025hallucinated)",
+                detail: "Crossref returned 404. MCP gate returns ERR_UNVERIFIED_CITATION (demo fixture).",
+                headlineZh: "[演示] 确认不存在 (smith2025hallucinated)",
+                detailZh: "Crossref 返回 404；MCP 写入门禁返回 ERR_UNVERIFIED_CITATION（演示示例数据）。",
                 matchedRecord: nil,
                 lineNumbers: [16],
                 hasLocalPDFEvidence: false
             )
         ]
 
-        session.activeEvidence = PDFPassageEvidence(
-            citeKey: "dao2022flashattention",
-            pdfFilename: "dao2022_flashattention.pdf",
-            pageNumber: 4,
-            boundingBox: CGRect(x: 72, y: 418, width: 468, height: 54),
-            verbatimSnippet: "FlashAttention uses tiling to prevent materialization of the N x N attention matrix in slow GPU HBM, achieving a 3.1x wall-clock speedup on GPT-2.",
-            confidenceScore: 0.94
-        )
+        session.activeEvidence = nil
         return session
     }
 
@@ -289,7 +352,7 @@ public final class CiteStudioWorkspaceSession: ObservableObject {
     Tiling attention blocks inside SRAM avoids materializing intermediate matrices in HBM \\cite{dao2022flashattention}.
     Non-contiguous virtual block tables eliminate external KV fragmentation \\cite{kwon2023vllm}.
 
-    \\section{ Ablation and Unverified Claim Check}
+    \\section{Ablation and Unverified Claim Check}
     It is worth noting that speculative zero-entropy tensor folding \\cite{smith2025hallucinated} plays a pivotal role in latency reduction.
     \\begin{figure}[h]
     \\caption{Decode throughput across batch sizes.}

@@ -273,31 +273,4 @@ public final class LocalPDFIndexer: @unchecked Sendable {
         }
         sqlite3_exec(db, "INSERT INTO pdf_passages_fts(pdf_passages_fts) VALUES('rebuild');", nil, nil, nil)
     }
-
-    /// Generates a real vector PDF file on disk for testing PDFKit paragraph + coordinate extraction.
-    public static func writeSyntheticAcademicPDF(to url: URL, pages: [[String]]) throws {
-        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
-        guard let consumer = CGDataConsumer(url: url as CFURL),
-              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            throw NSError(domain: "CiteStudio.PDFSynth", code: 2, userInfo: nil)
-        }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.black
-        ]
-        for paragraphs in pages {
-            ctx.beginPDFPage(nil)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
-            var cursorY: CGFloat = 700
-            for para in paragraphs {
-                let rect = CGRect(x: 72, y: cursorY - 64, width: 468, height: 64)
-                (para as NSString).draw(in: rect, withAttributes: attrs)
-                cursorY -= 96
-            }
-            NSGraphicsContext.restoreGraphicsState()
-            ctx.endPDFPage()
-        }
-        ctx.closePDF()
-    }
 }

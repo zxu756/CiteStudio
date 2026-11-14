@@ -100,13 +100,14 @@ public enum FirewallVerdictKind: String, Sendable, Codable, CaseIterable {
     case metadataMismatch = "MetadataMismatch"
     case retracted = "Retracted"
     case ghostPaper = "GhostPaper"
+    case unverified = "Unverified"
     case orphanCite = "OrphanCite"
 
     public var isBlockingForMCP: Bool {
         switch self {
-        case .ghostPaper, .retracted, .metadataMismatch:
+        case .ghostPaper, .retracted, .metadataMismatch, .unverified, .orphanCite:
             return true
-        case .verified, .preprintUpgrade, .orphanCite:
+        case .verified, .preprintUpgrade:
             return false
         }
     }
@@ -114,15 +115,17 @@ public enum FirewallVerdictKind: String, Sendable, Codable, CaseIterable {
     public func badgeLabel(in language: AppLanguage) -> String {
         switch self {
         case .verified:
-            return language == .zhHans ? "已核验" : "VERIFIED"
+            return language == .zhHans ? "已验证" : "VERIFIED"
         case .preprintUpgrade:
             return language == .zhHans ? "可升级正式版" : "UPGRADE"
         case .metadataMismatch:
-            return language == .zhHans ? "元数据偏差" : "MISMATCH"
+            return language == .zhHans ? "元数据不符" : "MISMATCH"
         case .retracted:
             return language == .zhHans ? "已撤稿" : "RETRACTED"
         case .ghostPaper:
-            return language == .zhHans ? "幽灵拦截" : "GHOST BLOCK"
+            return language == .zhHans ? "确认不存在" : "NOT FOUND"
+        case .unverified:
+            return language == .zhHans ? "未验证" : "UNVERIFIED"
         case .orphanCite:
             return language == .zhHans ? "孤立引用" : "ORPHAN"
         }
@@ -163,6 +166,21 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
         self.publishedUpgradeVenue = publishedUpgradeVenue
         self.publishedUpgradeDOI = publishedUpgradeDOI
         self.publishedUpgradeYear = publishedUpgradeYear
+    }
+
+    public func withRetracted(_ retracted: Bool) -> ScholarRecord {
+        ScholarRecord(
+            source: source,
+            title: title,
+            authors: authors,
+            year: year,
+            venue: venue,
+            doi: doi,
+            isRetracted: retracted,
+            publishedUpgradeVenue: publishedUpgradeVenue,
+            publishedUpgradeDOI: publishedUpgradeDOI,
+            publishedUpgradeYear: publishedUpgradeYear
+        )
     }
 
     public var firstAuthorSurname: String {
@@ -220,18 +238,20 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
             if let rec = matchedRecord {
                 return "已通过 \(rec.source) 核验（\(rec.venue), \(rec.year)）"
             }
-            return "已核验引用 (\(citeKey))"
+            return "已验证引用 (\(citeKey))"
         case .preprintUpgrade:
             if let rec = matchedRecord, let up = rec.publishedUpgradeVenue {
                 return "检出同行评审正式版：\(up) \(rec.publishedUpgradeYear ?? rec.year)"
             }
             return "可升级为正式发表版本 (\(citeKey))"
         case .metadataMismatch:
-            return "与权威索引存在元数据偏差 (\(citeKey))"
+            return "与权威索引存在元数据不符 (\(citeKey))"
         case .retracted:
             return "已撤稿文献告警 (\(citeKey))"
         case .ghostPaper:
-            return "已拦截幽灵/幻觉引用 (\(citeKey))"
+            return "确认不存在 (\(citeKey))"
+        case .unverified:
+            return "未验证文献 (\(citeKey))"
         case .orphanCite:
             return "孤立引用键 (\(citeKey))"
         }
@@ -252,9 +272,11 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         case .metadataMismatch:
             return detail.replacingOccurrences(of: "Discrepancy detected:", with: "检测到元数据不一致：")
         case .retracted:
-            return "Crossref / OpenAlex 存在正式撤稿通知，严禁作为有效论据引用。"
+            return "Crossref / OpenAlex 存在正式撤稿记录，严禁作为有效论据引用。"
         case .ghostPaper:
-            return "Crossref、OpenAlex 与 arXiv 均无匹配记录；MCP 写入门禁返回 ERR_UNVERIFIED_CITATION。"
+            return "Crossref 明确返回 404，或两个数据源按标题均无相近记录；MCP 门禁返回 ERR_UNVERIFIED_CITATION。"
+        case .unverified:
+            return "联网请求未完成（断网、超时、限流或服务异常），本次未写入缓存。"
         case .orphanCite:
             return lineNumbers.isEmpty
                 ? "存在于 .bib 文件中，但正文从未通过 \\cite{} 或 @key 引用。"

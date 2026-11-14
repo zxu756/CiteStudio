@@ -5,7 +5,6 @@ xcuserdata/
 DerivedData/
 .swiftpm/
 build/
-reports/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

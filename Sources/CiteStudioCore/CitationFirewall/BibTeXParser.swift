@@ -1,6 +1,6 @@
 import Foundation
 
-/// AST-grade parser & canonical formatter for `.bib` bibliographies and LaTeX / Typst inline citations.
+/// Parser & canonical formatter for `.bib` bibliographies and LaTeX / Typst inline citations.
 public enum BibTeXParser {
 
     public static func parseBibTeX(_ text: String) -> [BibEntry] {
@@ -162,7 +162,6 @@ public enum BibTeXParser {
 
             for match in typstPattern.matches(in: line, range: range) {
                 let key = nsLine.substring(with: match.range(at: 1))
-                // Skip common Typst directives or mail domains
                 if !["import", "include", "let", "set", "show"].contains(key.lowercased()) {
                     refs.append(InlineCitationRef(citeKey: key, lineNumber: lineNo, claimSentence: trimmed))
                 }
@@ -171,28 +170,92 @@ public enum BibTeXParser {
         return refs
     }
 
-    public static func formatUpgradedBibTeX(entry: BibEntry, record: ScholarRecord) -> String {
-        let venue = record.publishedUpgradeVenue ?? record.venue
-        let year = record.publishedUpgradeYear ?? record.year
-        let doi = record.publishedUpgradeDOI ?? record.doi
-        let authorsJoined = record.authors.isEmpty ? entry.authors.joined(separator: " and ") : record.authors.joined(separator: " and ")
-        var lines = [
-            "@inproceedings{\(entry.citeKey),",
-            "  title = {\(record.title)},",
-            "  author = {\(authorsJoined)},",
-            "  booktitle = {\(venue)},",
-            "  year = {\(year)}"
+    /// Formats a canonical BibTeX stanza populated from the authoritative `ScholarRecord` rather than caller's raw fields.
+    public static func formatCanonicalBibTeX(
+        entry: BibEntry,
+        record: ScholarRecord,
+        preferUpgrade: Bool = false
+    ) -> String {
+        let venue = (preferUpgrade ? record.publishedUpgradeVenue : nil) ?? record.venue
+        let year = (preferUpgrade ? record.publishedUpgradeYear : nil) ?? (record.year > 0 ? record.year : (entry.year ?? 0))
+        let doi = (preferUpgrade ? record.publishedUpgradeDOI : nil) ?? record.doi ?? entry.doi
+        let authorsJoined = record.authors.isEmpty
+            ? entry.authors.joined(separator: " and ")
+            : record.authors.joined(separator: " and ")
+
+        let resolvedType: String
+        let venueField: String
+        if preferUpgrade, record.publishedUpgradeVenue != nil {
+            resolvedType = "inproceedings"
+            venueField = "booktitle"
+        } else {
+            let normalizedType = entry.entryType.isEmpty ? "article" : entry.entryType.lowercased()
+            resolvedType = normalizedType
+            switch normalizedType {
+            case "inproceedings", "conference", "incollection":
+                venueField = "booktitle"
+            case "book":
+                venueField = "publisher"
+            default:
+                venueField = "journal"
+            }
+        }
+
+        var lines: [String] = [
+            "@\(resolvedType){\(entry.citeKey),",
+            "  title = {\(record.title)},"
         ]
+        if !authorsJoined.isEmpty {
+            lines.append("  author = {\(authorsJoined)},")
+        }
+        if !venue.isEmpty {
+            lines.append("  \(venueField) = {\(venue)},")
+        }
+        if year > 0 {
+            lines.append("  year = {\(year)}")
+        }
         if let doi, !doi.isEmpty {
-            lines[lines.count - 1] += ","
+            if lines.count > 1 && !lines[lines.count - 1].hasSuffix(",") {
+                lines[lines.count - 1] += ","
+            }
             lines.append("  doi = {\(doi)}")
+        } else if lines.count > 1 && lines[lines.count - 1].hasSuffix(",") {
+            lines[lines.count - 1] = String(lines[lines.count - 1].dropLast())
         }
         lines.append("}")
         return lines.joined(separator: "\n")
     }
 
+    public static func formatUpgradedBibTeX(entry: BibEntry, record: ScholarRecord) -> String {
+        formatCanonicalBibTeX(entry: entry, record: record, preferUpgrade: true)
+    }
+
     private static func cleanLaTeXString(_ raw: String) -> String {
-        raw.replacingOccurrences(of: "{", with: "")
+        var s = raw
+        // Decode common LaTeX diacritics (e.g. {\"u}, {\'e}, \"u, \'e) into Unicode characters
+        let accentTable: [(String, Character, String)] = [
+            ("\"", "a", "ä"), ("\"", "o", "ö"), ("\"", "u", "ü"), ("\"", "e", "ë"), ("\"", "i", "ï"),
+            ("\"", "A", "Ä"), ("\"", "O", "Ö"), ("\"", "U", "Ü"), ("\"", "E", "Ë"), ("\"", "I", "Ï"),
+            ("'", "a", "á"), ("'", "e", "é"), ("'", "i", "í"), ("'", "o", "ó"), ("'", "u", "ú"), ("'", "y", "ý"), ("'", "c", "ć"),
+            ("'", "A", "Á"), ("'", "E", "É"), ("'", "I", "Í"), ("'", "O", "Ó"), ("'", "U", "Ú"), ("'", "Y", "Ý"), ("'", "C", "Ć"),
+            ("`", "a", "à"), ("`", "e", "è"), ("`", "i", "ì"), ("`", "o", "ò"), ("`", "u", "ù"),
+            ("^", "a", "â"), ("^", "e", "ê"), ("^", "i", "î"), ("^", "o", "ô"), ("^", "u", "û"),
+            ("~", "a", "ã"), ("~", "n", "ñ"), ("~", "o", "õ"), ("~", "N", "Ñ")
+        ]
+        for (accent, base, replacement) in accentTable {
+            s = s.replacingOccurrences(of: "{\\\(accent){\(base)}}", with: replacement)
+            s = s.replacingOccurrences(of: "{\\\(accent)\(base)}", with: replacement)
+            s = s.replacingOccurrences(of: "\\\(accent){\(base)}", with: replacement)
+            s = s.replacingOccurrences(of: "\\\(accent)\(base)", with: replacement)
+        }
+        s = s.replacingOccurrences(of: "{\\c{c}}", with: "ç")
+            .replacingOccurrences(of: "\\c{c}", with: "ç")
+            .replacingOccurrences(of: "{\\c{C}}", with: "Ç")
+            .replacingOccurrences(of: "\\c{C}", with: "Ç")
+            .replacingOccurrences(of: "{\\ss}", with: "ß")
+            .replacingOccurrences(of: "\\ss", with: "ß")
+
+        return s.replacingOccurrences(of: "{", with: "")
             .replacingOccurrences(of: "}", with: "")
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)

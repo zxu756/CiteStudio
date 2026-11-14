@@ -160,7 +160,7 @@ public struct FirewallAuditDrawer: View {
     private func badgeColor(_ kind: FirewallVerdictKind) -> Color {
         switch kind {
         case .verified: return CiteStudioTheme.forestGreen
-        case .preprintUpgrade, .metadataMismatch, .orphanCite: return CiteStudioTheme.amberGold
+        case .preprintUpgrade, .metadataMismatch, .unverified, .orphanCite: return CiteStudioTheme.amberGold
         case .retracted, .ghostPaper: return CiteStudioTheme.exLibrisBurgundy
         }
     }

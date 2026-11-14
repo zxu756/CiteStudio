@@ -17,6 +17,24 @@ public enum TectonicRunner {
 
     public static func compile(texFile: URL, outputDirectory: URL? = nil) -> CompileResult {
         let start = DispatchTime.now()
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: texFile.path, isDirectory: &isDir), !isDir.boolValue else {
+            return CompileResult(
+                engine: "tectonic",
+                succeeded: false,
+                pdfURL: nil,
+                synctexURL: nil,
+                durationMs: 0,
+                diagnostics: [
+                    CompilerDiagnostic(
+                        file: texFile.lastPathComponent,
+                        line: 1,
+                        message: "Input file does not exist: \(texFile.path)",
+                        isError: true
+                    )
+                ]
+            )
+        }
         let outDir = outputDirectory ?? texFile.deletingLastPathComponent()
         guard let bin = detectBinary() else {
             return CompileResult(

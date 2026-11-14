@@ -1,7 +1,8 @@
+import Foundation
 import SwiftUI
 
-/// Main Oxford Archival Vellum 3-pane academic IDE workspace:
-/// Left: Outline & Bibliography Folio | Center: LaTeX/Typst Editor | Right: SyncTeX PDF & Citation Firewall.
+/// Main Oxford Archival Vellum 3-pane workspace:
+/// Left: Outline & Bibliography Folio | Center: LaTeX/Typst Editor | Right: PDF Preview & Citation Firewall.
 public struct StudioThreePaneView: View {
     @ObservedObject var session: CiteStudioWorkspaceSession
     @ObservedObject var localizer: AppLocalizer
@@ -16,6 +17,11 @@ public struct StudioThreePaneView: View {
         VStack(spacing: 0) {
             topArchivalHeader
             Rectangle().fill(CiteStudioTheme.spineRule).frame(height: 1)
+
+            if session.isDemoMode {
+                demoModeBanner
+                Rectangle().fill(CiteStudioTheme.spineRule).frame(height: 1)
+            }
 
             statusTelemetryStrip
             Rectangle().fill(CiteStudioTheme.spineRule).frame(height: 1)
@@ -40,12 +46,59 @@ public struct StudioThreePaneView: View {
         .background(CiteStudioTheme.vellumPage)
         .foregroundStyle(CiteStudioTheme.carbonInk)
         .preferredColorScheme(.light)
+        .onAppear {
+            Self.emitUIStateSnapshotIfRequested(session: session, language: localizer.language)
+        }
+    }
+
+    private static func emitUIStateSnapshotIfRequested(session: CiteStudioWorkspaceSession, language: AppLanguage) {
+        guard let outPath = ProcessInfo.processInfo.environment["CITESTUDIO_UI_STATE_FILE"],
+              !outPath.isEmpty else { return }
+        let payload: [String: Any] = [
+            "language": language.rawValue,
+            "isDemoMode": session.isDemoMode,
+            "manuscriptChars": session.manuscriptText.count,
+            "bibEntries": session.bibEntries.count,
+            "diagnostics": session.diagnostics.count,
+            "lintFindings": session.lintFindings.count
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: outPath), options: .atomic)
+        }
     }
 
     // MARK: - Header & Status Strip
 
+    private var demoModeBanner: some View {
+        HStack(spacing: 10) {
+            Text(localizer.L("[DEMO]", "[DEMO · 演示数据]"))
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .tracking(0)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(CiteStudioTheme.amberGold.opacity(0.18))
+                .foregroundStyle(CiteStudioTheme.amberGold)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            Text(
+                localizer.L(
+                    "Displaying built-in sample manuscript & bibliography. Use --cli verify / lint / compile or --mcp for user files.",
+                    "当前展示内置示例文稿与参考文献。核查用户真实文件请使用命令行 --cli verify / lint / compile 或 --mcp 服务。"
+                )
+            )
+            .font(.system(size: 11))
+            .tracking(0)
+            .foregroundStyle(CiteStudioTheme.carbonInk)
+
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
+        .background(CiteStudioTheme.amberGold.opacity(0.08))
+    }
+
     private var topArchivalHeader: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(CiteStudioTheme.oxfordNavy)
@@ -55,10 +108,16 @@ public struct StudioThreePaneView: View {
                     .foregroundStyle(.white)
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("CiteStudio")
                     .font(.system(size: 17, weight: .bold, design: .serif))
-                Text(localizer.L("Zero-hallucination LaTeX & Typst evidence IDE", "零幻觉 LaTeX 与 Typst 学术证据写作台"))
+                if session.isDemoMode {
+                    Text(localizer.L("[DEMO]", "[演示数据]"))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(CiteStudioTheme.amberGold)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                Text(localizer.L("LaTeX & Typst Citation Firewall & Prose Linter", "LaTeX 与 Typst 引文核查与行文体检"))
                     .font(.system(size: 12))
                     .tracking(0)
                     .foregroundStyle(CiteStudioTheme.marginaliaGrey)
@@ -77,7 +136,7 @@ public struct StudioThreePaneView: View {
                             .font(.system(size: 12, weight: active ? .semibold : .medium))
                             .tracking(0)
                             .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, 11)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(active ? CiteStudioTheme.oxfordNavy : CiteStudioTheme.folioRail)
                             .foregroundStyle(active ? Color.white : CiteStudioTheme.carbonInk)
@@ -90,13 +149,36 @@ public struct StudioThreePaneView: View {
             CiteStudioLanguageTogglePill(localizer: localizer)
 
             Button {
+                if session.isDemoMode {
+                    session.clearWorkspace()
+                } else {
+                    session.loadDemo()
+                }
+            } label: {
+                Text(
+                    session.isDemoMode
+                        ? localizer.L("Clear Demo", "清空演示")
+                        : localizer.L("Load Demo", "载入演示")
+                )
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(0)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(CiteStudioTheme.amberGold.opacity(0.14))
+                .foregroundStyle(CiteStudioTheme.amberGold)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            Button {
                 Task { await session.refreshAudit() }
             } label: {
                 Text(localizer.L("Verify Citations", "核验引文"))
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(0)
                     .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 11)
                     .padding(.vertical, 6)
                     .background(CiteStudioTheme.manuscriptSheet)
                     .foregroundStyle(CiteStudioTheme.oxfordNavy)
@@ -111,7 +193,7 @@ public struct StudioThreePaneView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(0)
                     .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 11)
                     .padding(.vertical, 6)
                     .background(CiteStudioTheme.forestGreen)
                     .foregroundStyle(Color.white)
@@ -127,34 +209,34 @@ public struct StudioThreePaneView: View {
     private var statusTelemetryStrip: some View {
         HStack(spacing: 18) {
             metricItem(
-                label: localizer.L("Verified sources", "已核验文献"),
+                label: localizer.L("Verified sources", "已验证文献"),
                 value: localizer.isChinese
-                    ? "\(session.verifiedCount)/\(session.bibEntries.count) 篇已入库"
-                    : "\(session.verifiedCount)/\(session.bibEntries.count) indexed",
+                    ? "\(session.verifiedCount)/\(session.bibEntries.count) 篇"
+                    : "\(session.verifiedCount)/\(session.bibEntries.count)",
                 color: CiteStudioTheme.forestGreen
             )
             dividerDot
             metricItem(
-                label: localizer.L("Ghost / Retracted blocked", "幽灵 / 撤稿拦截"),
+                label: localizer.L("Blocked", "已拦截"),
                 value: localizer.isChinese
-                    ? "已拦截 \(session.blockedCount) 处"
-                    : "\(session.blockedCount) blocked",
+                    ? "\(session.blockedCount) 处"
+                    : "\(session.blockedCount)",
                 color: session.blockedCount > 0 ? CiteStudioTheme.exLibrisBurgundy : CiteStudioTheme.forestGreen
             )
             dividerDot
             metricItem(
-                label: localizer.L("arXiv -> Venue upgrades", "预印本转正式版"),
+                label: localizer.L("Unverified", "未验证"),
                 value: localizer.isChinese
-                    ? "\(session.upgradeAvailableKeys.count) 处可升级"
-                    : "\(session.upgradeAvailableKeys.count) ready",
+                    ? "\(session.unverifiedCount) 处"
+                    : "\(session.unverifiedCount)",
                 color: CiteStudioTheme.amberGold
             )
             dividerDot
             metricItem(
                 label: localizer.L("Prose & float lints", "行文与图表体检"),
                 value: localizer.isChinese
-                    ? "\(session.lintFindings.count) 项提示"
-                    : "\(session.lintFindings.count) items",
+                    ? "\(session.lintFindings.count) 项"
+                    : "\(session.lintFindings.count)",
                 color: CiteStudioTheme.oxfordNavy
             )
             Spacer()
@@ -194,7 +276,7 @@ public struct StudioThreePaneView: View {
 
     private var leftFolioRail: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(localizer.L("Bibliography Folio (references.bib)", "参考文献案卷 (references.bib)"))
+            Text(localizer.L("Bibliography Folio", "参考文献列表"))
                 .font(.system(size: 11.5, weight: .bold))
                 .tracking(0)
                 .foregroundStyle(CiteStudioTheme.carbonInk)
@@ -205,40 +287,48 @@ public struct StudioThreePaneView: View {
 
             Rectangle().fill(CiteStudioTheme.spineRule).frame(height: 1)
 
-            ForEach(session.bibEntries) { entry in
-                let isGhost = session.ghostOrRetractedKeys.contains(entry.citeKey)
-                let isUpgrade = session.upgradeAvailableKeys.contains(entry.citeKey)
-                let dotColor = isGhost
-                    ? CiteStudioTheme.exLibrisBurgundy
-                    : (isUpgrade ? CiteStudioTheme.amberGold : CiteStudioTheme.forestGreen)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Circle().fill(dotColor).frame(width: 7, height: 7)
-                        Text(entry.citeKey)
-                            .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(CiteStudioTheme.carbonInk)
-                        Spacer()
-                        if let yr = entry.year {
-                            Text(String(yr))
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(CiteStudioTheme.marginaliaGrey)
-                        }
-                    }
-                    Text(
-                        localizer.isChinese
-                            ? "\(entry.firstAuthorSurname) 等 · \(shortVenue(entry.venue))"
-                            : "\(entry.firstAuthorSurname) et al. · \(shortVenue(entry.venue))"
-                    )
-                    .font(.system(size: 10.5))
-                    .tracking(0)
+            if session.bibEntries.isEmpty {
+                Text(localizer.L("No bibliography entries loaded.", "尚未载入参考文献条目。"))
+                    .font(.system(size: 11))
                     .foregroundStyle(CiteStudioTheme.marginaliaGrey)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(session.selectedCiteKey == entry.citeKey ? CiteStudioTheme.manuscriptSheet : Color.clear)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+            } else {
+                ForEach(session.bibEntries) { entry in
+                    let isGhost = session.ghostOrRetractedKeys.contains(entry.citeKey)
+                    let isUpgrade = session.upgradeAvailableKeys.contains(entry.citeKey)
+                    let dotColor = isGhost
+                        ? CiteStudioTheme.exLibrisBurgundy
+                        : (isUpgrade ? CiteStudioTheme.amberGold : CiteStudioTheme.oxfordNavy)
 
-                Rectangle().fill(CiteStudioTheme.spineRule.opacity(0.65)).frame(height: 1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Circle().fill(dotColor).frame(width: 7, height: 7)
+                            Text(entry.citeKey)
+                                .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(CiteStudioTheme.carbonInk)
+                            Spacer()
+                            if let yr = entry.year {
+                                Text(String(yr))
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                            }
+                        }
+                        Text(
+                            localizer.isChinese
+                                ? "\(entry.firstAuthorSurname) 等 · \(shortVenue(entry.venue))"
+                                : "\(entry.firstAuthorSurname) et al. · \(shortVenue(entry.venue))"
+                        )
+                        .font(.system(size: 10.5))
+                        .tracking(0)
+                        .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(session.selectedCiteKey == entry.citeKey ? CiteStudioTheme.manuscriptSheet : Color.clear)
+
+                    Rectangle().fill(CiteStudioTheme.spineRule.opacity(0.65)).frame(height: 1)
+                }
             }
 
             Text(localizer.L("Manuscript Outline", "文稿章节大纲"))
@@ -249,31 +339,40 @@ public struct StudioThreePaneView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 6)
 
-            ForEach(session.outlineSections, id: \.line) { sec in
-                HStack {
-                    Text(sec.title.trimmingCharacters(in: .whitespaces))
-                        .font(.system(size: 11))
-                        .foregroundStyle(CiteStudioTheme.carbonInk)
-                    Spacer()
-                    Text("L\(sec.line)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+            if session.outlineSections.isEmpty {
+                Text(localizer.L("No sections.", "暂无章节。"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(session.outlineSections, id: \.line) { sec in
+                    HStack {
+                        Text(sec.title.trimmingCharacters(in: .whitespaces))
+                            .font(.system(size: 11))
+                            .foregroundStyle(CiteStudioTheme.carbonInk)
+                        Spacer()
+                        Text("L\(sec.line)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(CiteStudioTheme.marginaliaGrey)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 4)
             }
 
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                Circle().fill(CiteStudioTheme.forestGreen).frame(width: 6, height: 6)
-                Text(localizer.L("Offline SQLite FTS5 + Firewall", "离线 SQLite FTS5 索引 + 引文防火墙"))
-                    .font(.system(size: 10.5, design: .monospaced))
+                Circle().fill(CiteStudioTheme.oxfordNavy).frame(width: 6, height: 6)
+                Text(localizer.L("Crossref · OpenAlex · SQLite", "Crossref · OpenAlex · SQLite 缓存"))
+                    .font(.system(size: 10, design: .monospaced))
                     .tracking(0)
                     .foregroundStyle(CiteStudioTheme.marginaliaGrey)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .padding(14)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
         .background(CiteStudioTheme.folioRail.opacity(0.55))
     }
@@ -290,11 +389,11 @@ public struct StudioThreePaneView: View {
 
     private func shortVenue(_ raw: String?) -> String {
         guard let v = raw, !v.isEmpty else {
-            return localizer.L("Unindexed", "未入库")
+            return localizer.L("Unspecified", "未填写来源")
         }
         if v.contains("Neural Information Processing") { return "NeurIPS" }
         if v.contains("arXiv") { return localizer.L("arXiv Preprint", "arXiv 预印本") }
-        if v.contains("Synthetic Preprints") { return localizer.L("Unverified", "未核验来源") }
+        if v.contains("Synthetic Preprints") { return localizer.L("Demo Fake Venue", "演示虚构期刊") }
         return v
     }
 }

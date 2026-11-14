@@ -68,11 +68,14 @@ public final class AppLocalizer: ObservableObject {
         preferredLanguages: [String] = Locale.preferredLanguages,
         defaultsKey: String = AppLocalizer.bundleLanguageKey
     ) {
-        self.userDefaults = userDefaults
+        let ephemeral = ProcessInfo.processInfo.environment["CITESTUDIO_EPHEMERAL_DEFAULTS"] == "1"
+            && userDefaults === UserDefaults.standard
+        let effectiveDefaults: UserDefaults? = ephemeral ? nil : userDefaults
+        self.userDefaults = effectiveDefaults
         self.defaultsKey = defaultsKey
         self.language = Self.resolveLanguage(
             arguments: arguments,
-            userDefaults: userDefaults,
+            userDefaults: effectiveDefaults,
             preferredLanguages: preferredLanguages,
             defaultsKey: defaultsKey
         )
@@ -90,14 +93,14 @@ public final class AppLocalizer: ObservableObject {
 
     public nonisolated static func resolveLanguage(
         arguments: [String] = CommandLine.arguments,
-        userDefaults: UserDefaults = .standard,
+        userDefaults: UserDefaults? = .standard,
         preferredLanguages: [String] = Locale.preferredLanguages,
         defaultsKey: String = AppLocalizer.bundleLanguageKey
     ) -> AppLanguage {
         if let cliLang = AppLanguage.parseCLIArguments(arguments) {
             return cliLang
         }
-        if let stored = userDefaults.string(forKey: defaultsKey),
+        if let stored = userDefaults?.string(forKey: defaultsKey),
            let parsed = AppLanguage.parse(stored) {
             return parsed
         }

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CiteStudioCore
 
-@Suite("CiteStudio Citation Firewall, PDFKit BM25 Provenance, SyncTeX & MCP Tests")
+@Suite("CiteStudio Citation Firewall, PDFKit BM25 Provenance, SyncTeX & MCP Tests", .timeLimit(.minutes(1)))
 struct CiteStudioCoreTests {
 
     @Test("BibTeXParser parses .bib stanzas and extracts LaTeX + Typst inline citations")

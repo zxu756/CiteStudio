@@ -1,64 +1,147 @@
-# CiteStudio `v0.2.0`
+# CiteStudio
 
 **English** | **[简体中文](README.zh-CN.md)**
 
-**Local-first, zero-hallucination LaTeX & Typst academic evidence IDE for macOS (with Live `中文 / EN` Bilingual UI)** — combining `Tectonic` (`--synctex`) + `Typst` dual compilation, a zero-API-key **Citation Firewall** (Crossref + OpenAlex + SQLite offline cache), `PDFKit` + SQLite FTS5 `BM25` claim-to-PDF provenance binding, deterministic academic prose linting, instant in-app **`中文 | EN`** language switching (`⇧⌘L`), and a hardware-gated MCP server (`ERR_UNVERIFIED_CITATION`).
+**Citation Verification, Retraction Check & Prose Linter for LaTeX and Typst on macOS (Swift 6 + Crossref + OpenAlex + MCP)**
 
-![CiteStudio Main Workspace](docs/screenshot-main.png)
+> **Current v0.2.0 Scope Notice (Read First)**
+> - **Real user files work today via CLI & MCP**: Verify `.bib` bibliographies (`--cli verify`), clear cached lookups (`--cli clear-cache`), lint `.tex`/`.typ` prose (`--cli lint`), compile documents (`--cli compile`), and gate agent edits via the stdio MCP server (`--mcp`).
+> - **Desktop GUI current limits**: Launching `CiteStudio` without `--demo` starts in a clean **empty workspace** (`0` manuscript text, `0` bibliography entries, `0` diagnostics). Opening arbitrary local project folders in the GUI, bidirectional SyncTeX click-jumping in the GUI, and automatic `pdfs/` bounding-box highlighting in the GUI are **planned and not yet implemented** (see [Planned (Not Yet Implemented)](#planned-not-yet-implemented)). Use the **`Load Demo`** toolbar button or `--demo` flag to inspect the built-in `[DEMO]` sample workspace.
 
-![CiteStudio Citation Firewall & Prose Audit](docs/screenshot-firewall.png)
+---
 
-## Key Capabilities
+## Screenshots (`[DEMO]` Built-in Sample Workspace)
 
-1. **5-Class Zero-API-Key Citation Firewall** — Audits every `.bib` entry and inline `\cite{}` / `@key` against Crossref, OpenAlex, and a persistent SQLite cache without paid API keys:
-   - `GhostPaper`: Blocks fabricated / non-existent LLM citations (`ERR_UNVERIFIED_CITATION`).
-   - `Retracted`: Flags retracted papers via Crossref `update-to` notices.
-   - `PreprintUpgrade`: Detects `arXiv` preprints that now have peer-reviewed conference/journal versions (NeurIPS, ICML, SOSP, ACL) with 1-click `.bib` upgrade.
-   - `MetadataMismatch`: Catches drifted publication years or wrong first-author surnames.
-   - `OrphanCite`: Identifies missing `.bib` keys and uncited bibliography entries.
-2. **Local PDF Provenance Binding (`PDFKit` + SQLite FTS5 `BM25`)** — Extracts paragraph text and exact PDF page `CGRect` coordinates from local reference PDFs so any cited sentence in your manuscript resolves to its verbatim supporting passage and bounding box.
-3. **Dual Local Compilers + Bidirectional SyncTeX** — Drives `/opt/homebrew/bin/tectonic -X compile --synctex` and `typst compile` locally with forward/inverse `.synctex.gz` coordinate mapping.
-4. **Deterministic Academic Prose & Float Linter** — Built-in zero-LLM checks for AI cliché phrasing (`delve into`, `pivotal role`, `it is worth noting that`), em-dash overuse, undefined first-use acronyms, and unreferenced `\label{fig:...}` / `\label{tab:...}` floats.
-5. **Firewall-Gated Stdio MCP Server (`--mcp`)** — Lets Claude Code, Codex, OpenCode, or Antigravity assist with your manuscript while **physically rejecting** unverified BibTeX writes via `add_verified_bibtex` -> `ERR_UNVERIFIED_CITATION`.
+> **Screenshot Notice (`[DEMO]`)**: The screenshots below were rendered from `CiteStudio --demo` (`--export-screenshots`) using built-in sample manuscript and bibliography fixtures labeled **`[DEMO]`**, not an opened user project directory.
 
-## Install via Homebrew
+### English (`--lang en` · `[DEMO]`)
 
+| Three-Pane `[DEMO]` Sample Preview | Citation Firewall & Prose Lint Drawer (`[DEMO]`) |
+| :---: | :---: |
+| ![CiteStudio Main Workspace (DEMO)](docs/screenshot-main.png) | ![CiteStudio Citation Firewall Drawer (DEMO)](docs/screenshot-firewall.png) |
+| *`[DEMO]` Built-in sample workspace (`Load Demo` / `--demo`).* | *`[DEMO]` Sample citation statuses and deterministic prose lint cards.* |
+
+### 简体中文 (`--lang zh` · `[DEMO · 演示数据]`)
+
+| 三栏示例工作区（`[DEMO · 演示数据]`） | 引文防火墙与去 AI 套话体检抽屉（`[DEMO · 演示数据]`） |
+| :---: | :---: |
+| ![CiteStudio 中文主工作区（演示数据）](docs/screenshot-main-zh.png) | ![CiteStudio 中文引文防火墙与写作体检（演示数据）](docs/screenshot-firewall-zh.png) |
+| *`[DEMO · 演示数据]` 内置示例工作区（点击“载入演示”或传入 `--demo`）。* | *`[DEMO · 演示数据]` 示例文献核验状态与确定性行文体检卡片。* |
+
+---
+
+## Implemented Capabilities (M0)
+
+### 1. Citation Verification & Three-Way Lookup Separation (`ScholarTriangulator`)
+Queries **Crossref** and **OpenAlex** over `URLSession` and strictly separates three upstream outcomes:
+
+1. **Found (`Verified` / `PreprintUpgrade` / `MetadataMismatch` / `Retracted`)**:
+   - **DOI verification**: Resolves the DOI and checks **normalized title similarity** (Jaccard token similarity), **diacritic-folded first-author surname**, and **publication year** (`|Δyear| ≤ 1`). A real DOI paired with a mismatched title, author, or year is flagged as **`MetadataMismatch`**.
+   - **Retraction detection**: Checks Crossref `update-to`, Crossref `updated-by` (`retraction` / `withdrawal` / `removal`), Crossref `relation.is-retracted-by`, `"RETRACTED:"` title prefixes, and OpenAlex `is_retracted == true`. Retracted works (e.g., Wakefield 1998, Séralini 2012) are flagged as **`Retracted`**.
+   - **Preprint upgrade hint**: When a cited `arXiv` / `bioRxiv` / `medRxiv` entry matches an upstream peer-reviewed venue, surfaces **`PreprintUpgrade`** with formatted BibTeX.
+2. **Confirmed Not Found (`GhostPaper`)**:
+   - Reported **only** when Crossref explicitly returns HTTP `404` for a queried DOI, or when both Crossref and OpenAlex title queries complete with HTTP `200` and return zero matching records.
+3. **Lookup Failed (`Unverified`)**:
+   - Offline networks, DNS/socket failures, request timeouts, HTTP `429` rate limits, HTTP `5xx` upstream errors, or malformed JSON responses are reported as **`Unverified` (`未验证`)**.
+   - **`Unverified` results are never written to the SQLite cache** and are never conflated with `GhostPaper`. Once connectivity recovers, subsequent runs re-query upstream immediately.
+   - Cached entries carry explicit TTL timestamps (`7 days` for found records; `24 hours` for confirmed-not-found records), and expired entries are evicted automatically on read or purged manually via `--cli clear-cache`.
+
+> **Current Limitation**: Entries without a DOI (such as older books like Knuth 1968 *The Art of Computer Programming*) currently rely on first-hit title search in Crossref/OpenAlex and may return `MetadataMismatch` when a newer article shares title tokens. Multi-candidate ranking and Open Library book lookup are scheduled for M1.
+
+### 2. Canonical MCP Write Gate (`CiteStudio --mcp`)
+Runs a JSON-RPC 2.0 MCP server over `stdin`/`stdout` exposing 6 tools:
+
+| MCP Tool | Behavior |
+| :--- | :--- |
+| `verify_citation` | Verifies a BibTeX entry against Crossref, OpenAlex, and the SQLite cache, returning structured JSON (`Verified`, `PreprintUpgrade`, `MetadataMismatch`, `Retracted`, `GhostPaper`, `Unverified`). |
+| `add_verified_bibtex` | Verifies the BibTeX entry first. Rejects `GhostPaper`, `MetadataMismatch`, `Retracted`, and `Unverified` with `ERR_UNVERIFIED_CITATION` without modifying the target `.bib`. When `Verified` (or `PreprintUpgrade`), **synthesizes canonical BibTeX metadata (`title`, `author`, `year`, `journal`/`booktitle`, `doi`) from the upstream record** rather than trusting caller-supplied casing/fields, and skips duplicate `citeKey` entries (`SKIPPED_DUPLICATE_KEY`). |
+| `search_local_pdfs` | Queries the local SQLite FTS5 (`porter unicode61`) PDF index via BM25 to retrieve verbatim snippets and page numbers. |
+| `get_claim_evidence` | Matches a claim sentence and `cite_key` against indexed PDF paragraphs to return the best-matching page, bounding box, and verbatim snippet. |
+| `audit_manuscript` | Runs deterministic prose and float lint rules (`WritingQualityLinter`) on raw LaTeX/Typst text. |
+| `compile_pdf` | Compiles an existing `.tex` or `.typ` file via `tectonic --synctex` or `typst compile` (returns an error if the file does not exist or no compiler is installed). |
+
+### 3. Deterministic Academic Prose & Structure Linter (`WritingQualityLinter`)
+Offline regex and line-structure checks with zero LLM calls:
+- **AI cliché vocabulary (`anti-ai-vocab`)**: Flags phrases such as *delve into*, *pivotal role*, *tapestry*, *underscore*, *it is worth noting that*, and *comprehensive overview*.
+- **Em-dash density (`polish-emdash-density`)**: Flags paragraphs containing multiple `---` / `—` interruptions.
+- **Uncited floats (`polish-uncited-float`)**: Detects `\label{fig:...}` and `\label{tab:...}` never referenced via `\ref`, `\autoref`, or `\cref`.
+- **Undefined acronyms (`polish-undefined-acronym`)**: Detects uppercase acronyms (`3–6` letters, excluding common terms like `CPU`, `GPU`, `LLM`, `PDF`, `API`, `DOI`, `URL`, `SQL`) used before expansion.
+
+---
+
+## Quick Start & CLI Usage
+
+### Requirements
+- **macOS 14.0+** (Apple Silicon `arm64`)
+- **Swift 6.0+** (Xcode 16+ or Command Line Tools) to build from source
+- Optional external compilers for `--cli compile`: `brew install tectonic typst`
+
+### Build & Test
 ```bash
-brew tap zxu756/tap
-brew install --cask zxu756/tap/citestudio
+git clone https://github.com/zxu756/CiteStudio.git
+cd CiteStudio
+
+# Build debug binary
+swift build
+
+# Run scoped / milestone M0 verification suite (hermetic, zero external API calls)
+./Scripts/test.sh milestone 0
 ```
 
-Optional local compilers (auto-detected if installed):
+### CLI Commands (`--cli`)
+Every `--cli` command shares the same verification and linting core as the MCP server and supports `--lang en` / `--lang zh` plus `--cache-dir <dir>`:
 
 ```bash
-brew install tectonic typst
+# 1. Inspect compiler binary paths
+.build/debug/CiteStudio --cli status
+
+# 2. Verify every BibTeX entry in a .bib file
+#    Exits 0 ONLY when all entries are Verified (or PreprintUpgrade);
+#    exits non-zero if any entry is GhostPaper, MetadataMismatch, Retracted, or Unverified.
+.build/debug/CiteStudio --cli verify path/to/references.bib
+.build/debug/CiteStudio --cli verify path/to/references.bib --json
+.build/debug/CiteStudio --cli verify path/to/references.bib --lang zh
+
+# 3. Clear the local SQLite verification cache
+.build/debug/CiteStudio --cli clear-cache
+
+# 4. Run deterministic prose & float lint checks on a .tex or .typ file
+#    Exits 2 with an error message on stderr if the target file does not exist.
+.build/debug/CiteStudio --cli lint path/to/main.tex
+.build/debug/CiteStudio --cli lint path/to/main.tex --lang zh
+
+# 5. Compile a .tex or .typ file via Tectonic or Typst
+.build/debug/CiteStudio --cli compile path/to/main.tex
+
+# 6. Start the stdio MCP server for Claude Code / Cursor / OpenCode
+.build/debug/CiteStudio --mcp
+
+# 7. Launch GUI (empty workspace by default; pass --demo for sample data)
+.build/debug/CiteStudio
+.build/debug/CiteStudio --demo --lang zh
 ```
 
-## Headless CLI & MCP Server Usage
+### Environment Variables
+| Variable | Purpose |
+| :--- | :--- |
+| `CITESTUDIO_CACHE_DIR` | Override directory for `scholar_cache.sqlite` and `pdf_fts5.sqlite` (can also pass `--cache-dir <path>`). |
+| `CITESTUDIO_CROSSREF_BASE_URL` | Override Crossref API base URL (defaults to `https://api.crossref.org`; used for local loopback testing). |
+| `CITESTUDIO_OPENALEX_BASE_URL` | Override OpenAlex API base URL (defaults to `https://api.openalex.org`; used for local loopback testing). |
+| `CITESTUDIO_HTTP_TIMEOUT` | Per-request HTTP timeout in seconds (defaults to `12`). |
 
-```bash
-# Check detected compilers
-/Applications/CiteStudio.app/Contents/MacOS/CiteStudio --cli status
+---
 
-# Run deterministic prose & float quality checks in CI
-/Applications/CiteStudio.app/Contents/MacOS/CiteStudio --cli lint paper/main.tex
+## Planned (Not Yet Implemented)
 
-# Compile LaTeX (with SyncTeX) or Typst from terminal
-/Applications/CiteStudio.app/Contents/MacOS/CiteStudio --cli compile paper/main.tex
+The following items are **not implemented in M0** and should not be relied upon in the current build:
 
-# Register Firewall-gated MCP server for Claude Code / OpenCode / Codex
-/Applications/CiteStudio.app/Contents/MacOS/CiteStudio --mcp
-```
+- **GUI Local Project Workspace (`M3`)**: Opening user `.tex` / `.typ` / `.bib` folders from `File -> Open…`, saving edits back to disk, and `FSEvents` live reload.
+- **GUI Bidirectional SyncTeX Navigation (`M3`)**: Clicking a line in the SwiftUI editor to jump to the compiled PDF coordinate, or `⌘`-clicking the PDF preview to jump back to the source line (`SyncTeXMapper` currently exists only as a library parser).
+- **GUI Automatic PDF Folder Indexing & Bounding-Box Highlights (`M2` / `M3`)**: Automatically indexing `pdfs/*.pdf` inside an opened project folder and rendering live yellow bounding-box highlights in the GUI PDF pane (`search_local_pdfs` and `get_claim_evidence` currently query only PDFs explicitly indexed into SQLite FTS5).
+- **Multi-Candidate Book & No-DOI Resolution (`M1`)**: Scoring top-*N* candidates across Crossref, OpenAlex, Semantic Scholar, and Open Library so classic books without DOIs resolve accurately.
 
-## Build & Test from Source
-
-Requires macOS 14.0+ (`arm64`) and Swift 6.0+.
-
-```bash
-swift test
-./Scripts/build-app.sh
-```
+---
 
 ## License
 
-MIT License. See [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).

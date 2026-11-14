@@ -1,18 +1,24 @@
 import Foundation
 
-/// Hardware-grade Citation Firewall MCP Server: blocks hallucinated/retracted BibTeX writes with `ERR_UNVERIFIED_CITATION`.
+/// Citation Firewall MCP Server: blocks unverified, hallucinated, mismatched, or retracted BibTeX writes with `ERR_UNVERIFIED_CITATION`.
 public final class CiteStudioMCPServer: @unchecked Sendable {
     private let triangulator: ScholarTriangulator
     private let pdfIndexer: LocalPDFIndexer
+    private let language: AppLanguage
 
-    public init(triangulator: ScholarTriangulator, pdfIndexer: LocalPDFIndexer) {
+    public init(
+        triangulator: ScholarTriangulator,
+        pdfIndexer: LocalPDFIndexer,
+        language: AppLanguage = .en
+    ) {
         self.triangulator = triangulator
         self.pdfIndexer = pdfIndexer
+        self.language = language
     }
 
     public func runStdioLoop() {
         while let line = readLine(strippingNewline: true) {
-            if line.isEmpty { continue }
+            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
             let semaphore = DispatchSemaphore(value: 0)
             Task {
                 if let resp = await self.handleJSONLine(line) {
@@ -28,7 +34,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
     public func handleJSONLine(_ line: String) async -> String? {
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+            return encodeError(id: nil, code: -32700, message: "Parse error")
         }
         let id = req["id"]
         let method = (req["method"] as? String) ?? ""
@@ -69,8 +75,9 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             return encodeToolJSON(id: id, isError: diag.kind.isBlockingForMCP, payload: [
                 "citeKey": diag.citeKey,
                 "verdict": diag.kind.rawValue,
-                "headline": diag.headline,
-                "detail": diag.detail,
+                "badge": diag.kind.badgeLabel(in: language),
+                "headline": diag.localizedHeadline(in: language),
+                "detail": diag.localizedDetail(in: language),
                 "upgradedBibTeX": diag.upgradedBibTeX as Any
             ])
 
@@ -86,7 +93,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             }
 
             let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
-            if diag.kind.isBlockingForMCP {
+            guard !diag.kind.isBlockingForMCP, let authoritativeRecord = diag.matchedRecord else {
                 return encodeToolJSON(
                     id: id,
                     isError: true,
@@ -94,7 +101,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
                         "error_code": "ERR_UNVERIFIED_CITATION",
                         "cite_key": entry.citeKey,
                         "verdict": diag.kind.rawValue,
-                        "reason": diag.detail,
+                        "reason": diag.localizedDetail(in: language),
                         "action": "Write rejected before touching \(URL(fileURLWithPath: bibPath).lastPathComponent)."
                     ]
                 )
@@ -102,9 +109,30 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
 
             let targetURL = URL(fileURLWithPath: bibPath)
             let existing = (try? String(contentsOf: targetURL, encoding: .utf8)) ?? ""
-            let stanzaToAppend = diag.upgradedBibTeX ?? bibStanza.trimmingCharacters(in: .whitespacesAndNewlines)
-            let updated = existing.isEmpty ? (stanzaToAppend + "\n") : (existing.trimmingCharacters(in: .newlines) + "\n\n" + stanzaToAppend + "\n")
+            let existingEntries = BibTeXParser.parseBibTeX(existing)
+            if existingEntries.contains(where: { $0.citeKey.caseInsensitiveCompare(entry.citeKey) == .orderedSame }) {
+                return encodeToolJSON(id: id, isError: false, payload: [
+                    "status": "SKIPPED_DUPLICATE_KEY",
+                    "duplicate": true,
+                    "cite_key": entry.citeKey,
+                    "verdict": diag.kind.rawValue
+                ])
+            }
+
+            let canonicalStanza = diag.upgradedBibTeX
+                ?? BibTeXParser.formatCanonicalBibTeX(
+                    entry: entry,
+                    record: authoritativeRecord,
+                    preferUpgrade: diag.kind == .preprintUpgrade
+                )
+            let updated = existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? (canonicalStanza + "\n")
+                : (existing.trimmingCharacters(in: .newlines) + "\n\n" + canonicalStanza + "\n")
             do {
+                try FileManager.default.createDirectory(
+                    at: targetURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 try updated.write(to: targetURL, atomically: true, encoding: .utf8)
             } catch {
                 return encodeToolResult(id: id, isError: true, text: "ERR_IO: \(error.localizedDescription)")
@@ -113,6 +141,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             return encodeToolJSON(id: id, isError: false, payload: [
                 "status": "APPENDED_VERIFIED",
                 "cite_key": entry.citeKey,
+                "canonical_title": authoritativeRecord.title,
                 "verdict": diag.kind.rawValue,
                 "auto_upgraded_from_preprint": diag.upgradedBibTeX != nil
             ])
@@ -157,14 +186,17 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
                     "ruleId": $0.ruleId,
                     "category": $0.category,
                     "line": $0.lineNumber,
-                    "matched": $0.matchedText,
-                    "suggestion": $0.suggestion
+                    "matched": $0.localizedMatchedText(in: language),
+                    "suggestion": $0.localizedSuggestion(in: language)
                 ] as [String: Any]
             }
             return encodeToolJSON(id: id, isError: false, payload: ["count": rows.count, "findings": rows])
 
         case "compile_pdf":
             let path = (args["source_file"] as? String) ?? ""
+            guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
+                return encodeToolResult(id: id, isError: true, text: "ERR_FILE_NOT_FOUND: Source file does not exist: \(path)")
+            }
             let url = URL(fileURLWithPath: path)
             let res: CompileResult = (url.pathExtension.lowercased() == "typ")
                 ? TypstRunner.compile(typFile: url)
@@ -214,69 +246,69 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
 
     private static var toolDefinitions: [[String: Any]] {
         [
-        [
-            "name": "verify_citation",
-            "description": "Verify a BibTeX entry against Crossref, OpenAlex, and local SQLite cache.",
-            "inputSchema": [
-                "type": "object",
-                "properties": ["bibtex": ["type": "string"]],
-                "required": ["bibtex"]
+            [
+                "name": "verify_citation",
+                "description": "Verify a BibTeX entry against Crossref, OpenAlex, and local SQLite cache.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": ["bibtex": ["type": "string"]],
+                    "required": ["bibtex"]
+                ]
+            ],
+            [
+                "name": "add_verified_bibtex",
+                "description": "Append canonical BibTeX metadata to a .bib file ONLY if verified against Crossref / OpenAlex (returns ERR_UNVERIFIED_CITATION on ghost, mismatched, retracted, or unverified entries).",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "bib_file": ["type": "string"],
+                        "bibtex": ["type": "string"]
+                    ],
+                    "required": ["bib_file", "bibtex"]
+                ]
+            ],
+            [
+                "name": "search_local_pdfs",
+                "description": "BM25 full-text search across local reference PDFs indexed with PDFKit.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "query": ["type": "string"],
+                        "cite_key": ["type": "string"]
+                    ],
+                    "required": ["query"]
+                ]
+            ],
+            [
+                "name": "get_claim_evidence",
+                "description": "Find the highest-BM25 PDF passage candidate for a manuscript sentence.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "claim_sentence": ["type": "string"],
+                        "cite_key": ["type": "string"]
+                    ],
+                    "required": ["claim_sentence", "cite_key"]
+                ]
+            ],
+            [
+                "name": "audit_manuscript",
+                "description": "Run deterministic writing-anti-ai and paper-polish checks on LaTeX/Typst prose.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": ["manuscript_text": ["type": "string"]],
+                    "required": ["manuscript_text"]
+                ]
+            ],
+            [
+                "name": "compile_pdf",
+                "description": "Compile a .tex or .typ file using local Tectonic or Typst.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": ["source_file": ["type": "string"]],
+                    "required": ["source_file"]
+                ]
             ]
-        ],
-        [
-            "name": "add_verified_bibtex",
-            "description": "Append a BibTeX entry to a .bib file ONLY if it passes the Citation Firewall (returns ERR_UNVERIFIED_CITATION on ghost or retracted papers).",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "bib_file": ["type": "string"],
-                    "bibtex": ["type": "string"]
-                ],
-                "required": ["bib_file", "bibtex"]
-            ]
-        ],
-        [
-            "name": "search_local_pdfs",
-            "description": "BM25 search across local reference PDFs indexed with PDFKit page coordinates.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "query": ["type": "string"],
-                    "cite_key": ["type": "string"]
-                ],
-                "required": ["query"]
-            ]
-        ],
-        [
-            "name": "get_claim_evidence",
-            "description": "Find the verbatim PDF passage and bounding box supporting a manuscript claim sentence.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "claim_sentence": ["type": "string"],
-                    "cite_key": ["type": "string"]
-                ],
-                "required": ["claim_sentence", "cite_key"]
-            ]
-        ],
-        [
-            "name": "audit_manuscript",
-            "description": "Run deterministic writing-anti-ai and paper-polish checks on LaTeX/Typst prose.",
-            "inputSchema": [
-                "type": "object",
-                "properties": ["manuscript_text": ["type": "string"]],
-                "required": ["manuscript_text"]
-            ]
-        ],
-        [
-            "name": "compile_pdf",
-            "description": "Compile a .tex or .typ file using local Tectonic (--synctex) or Typst.",
-            "inputSchema": [
-                "type": "object",
-                "properties": ["source_file": ["type": "string"]],
-                "required": ["source_file"]
-            ]
-        ]
         ]
     }
 }
