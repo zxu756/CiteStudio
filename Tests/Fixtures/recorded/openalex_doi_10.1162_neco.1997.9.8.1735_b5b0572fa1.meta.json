@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 17412,
+  "content_type": "application/json",
+  "raw_file": "openalex_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1.raw",
+  "requested_at": "2026-11-14T20:29:13Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:13 GMT",
+  "service": "openalex",
+  "sha256": "9859e5511dfe944e6dc1f55661bc56e75cc60a1e507342092615134b02aff7b8",
+  "slug": "openalex_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1",
+  "status": 200,
+  "url": "https://api.openalex.org/works/https://doi.org/10.1162/neco.1997.9.8.1735"
+}

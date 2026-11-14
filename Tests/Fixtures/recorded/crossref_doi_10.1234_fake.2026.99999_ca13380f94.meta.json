@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 19,
+  "content_type": "text/plain",
+  "raw_file": "crossref_doi_10.1234_fake.2026.99999_ca13380f94.raw",
+  "requested_at": "2026-11-14T20:29:21Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:22 GMT",
+  "service": "crossref",
+  "sha256": "ae8462e3af85ca7577aaa97ff22a194f9dfd7fada58cf4944b53d2fdfa7b1f92",
+  "slug": "crossref_doi_10.1234_fake.2026.99999_ca13380f94",
+  "status": 404,
+  "url": "https://api.crossref.org/works/10.1234/fake.2026.99999"
+}

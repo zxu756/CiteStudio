@@ -202,8 +202,8 @@ struct CiteStudioCoreTests {
         #expect((match?.boundingBox.width ?? 0) > 50)
     }
 
-    @Test("SyncTeXMapper bidirectionally maps .synctex / .synctex.gz fixtures, and real Tectonic compilation is gated on CITESTUDIO_REAL_TECTONIC=1")
-    func syncTeXAndTectonicCompilation() throws {
+    @Test("SyncTeXMapper bidirectionally maps .synctex / .synctex.gz fixtures and TectonicRunner parses diagnostics")
+    func syncTeXAndDiagnosticParsing() throws {
         let sampleSyncTeX = """
         SyncTeX Version:1
         Input:1:/tmp/paper/main.tex
@@ -242,32 +242,35 @@ struct CiteStudioCoreTests {
         let tecDiags = TectonicRunner.parseDiagnostics(log: "error: main.tex:14: Undefined control sequence", defaultFile: "main.tex")
         #expect(tecDiags.count == 1)
         #expect(tecDiags.first?.line == 14)
+    }
 
-        // Real tectonic compilation requires external bundle cache in $HOME/Library/Caches/TectonicProject.Tectonic
-        // (or network download from relay.fullyjustified.net when HOME is isolated); gate per General Rule §4 (C18).
-        if ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] == "1" {
-            if TectonicRunner.detectBinary() != nil {
-                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_tec_\(UUID().uuidString)")
-                try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-                defer { try? FileManager.default.removeItem(at: tmp) }
-                let texURL = tmp.appendingPathComponent("hello.tex")
-                try """
-                \\documentclass{article}
-                \\begin{document}
-                Hello CiteStudio Tectonic SyncTeX Verification.
-                \\end{document}
-                """.write(to: texURL, atomically: true, encoding: .utf8)
+    @Test(
+        "Real Tectonic compilation produces PDF and SyncTeX output",
+        .enabled(
+            if: ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] == "1",
+            "Requires CITESTUDIO_REAL_TECTONIC=1 (external TeX bundle cache / network)"
+        )
+    )
+    func realTectonicCompilation() throws {
+        _ = try #require(
+            TectonicRunner.detectBinary(),
+            "CITESTUDIO_REAL_TECTONIC=1 was set, but tectonic binary is not installed"
+        )
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_tec_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let texURL = tmp.appendingPathComponent("hello.tex")
+        try """
+        \\documentclass{article}
+        \\begin{document}
+        Hello CiteStudio Tectonic SyncTeX Verification.
+        \\end{document}
+        """.write(to: texURL, atomically: true, encoding: .utf8)
 
-                let res = TectonicRunner.compile(texFile: texURL, outputDirectory: tmp)
-                #expect(res.succeeded)
-                #expect(res.pdfURL != nil)
-                #expect(res.synctexURL != nil)
-            } else {
-                print("SKIPPED: tectonic binary not installed (CITESTUDIO_REAL_TECTONIC=1)")
-            }
-        } else {
-            print("SKIPPED: real tectonic compilation (CITESTUDIO_REAL_TECTONIC!=1; external cache/network item, 已跳过)")
-        }
+        let res = TectonicRunner.compile(texFile: texURL, outputDirectory: tmp)
+        #expect(res.succeeded)
+        #expect(res.pdfURL != nil)
+        #expect(res.synctexURL != nil)
     }
 
     @Test("WritingQualityLinter catches AI cliches, em-dash density, uncited floats, and undefined acronyms")

@@ -1,3 +1,7 @@
+// NOTE: The JSON payloads in this file are handwritten minimal unit-test JSON fixtures
+// (手写最小单元测试响应) used solely for isolated unit tests in Tests/CiteStudioCoreTests/.
+// M0 acceptance and README command replay use verbatim recorded upstream responses in Tests/Fixtures/recorded/.
+
 import AppKit
 import CoreGraphics
 import Darwin
@@ -49,8 +53,8 @@ extension LocalPDFIndexer {
     }
 }
 
-/// Real loopback HTTP/1.1 server bound to `127.0.0.1:0` serving recorded-structure Crossref & OpenAlex JSON
-/// so tests exercise `PublicScholarHTTPTransport` + `URLSession` end-to-end with zero external network calls.
+/// Real loopback HTTP/1.1 server bound to `127.0.0.1:0` serving handwritten minimal unit-test JSON fixtures
+/// (手写最小单元测试响应) so unit tests exercise `PublicScholarHTTPTransport` + `URLSession` deterministically offline.
 final class LoopbackScholarServer: @unchecked Sendable {
     enum Mode: Sendable {
         case healthy
@@ -240,7 +244,7 @@ final class LoopbackScholarServer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Recorded-Structure Crossref & OpenAlex Fixtures
+    // MARK: - Handwritten Minimal Unit-Test Crossref & OpenAlex JSON Fixtures (手写最小单元测试响应)
 
     private static func routeHealthyRequest(_ rawTarget: String) -> (Int, String) {
         let comps = URLComponents(string: "http://127.0.0.1" + rawTarget)

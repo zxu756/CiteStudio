@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# C15 Upstream Fixture Recorder for CiteStudio
+# C15 / C23 Upstream Fixture Recorder for CiteStudio
 # Default behavior: does NOT run and makes ZERO network requests unless CITESTUDIO_RECORD=1
 # is explicitly set after user approval.
 
@@ -27,16 +27,30 @@ import hashlib
 import json
 import os
 import re
+import socket
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-USER_AGENT = "CiteStudio-FixtureRecorder/0.2"
+USER_AGENT = "CiteStudio/0.2.0"
 CROSSREF_BASE = "https://api.crossref.org"
 OPENALEX_BASE = "https://api.openalex.org"
 EXTRA_DOIS = ["10.48550/arxiv.1706.03762"]
+MAX_REQUESTS = 24
+MIN_INTERVAL_SECONDS = 1.15
+MAX_RETRIES_PER_TARGET = 1
+
+total_http_requests_sent = 0
+
+
+class TransientUpstreamError(Exception):
+    pass
+
+
+def utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def normalize_doi(raw: str) -> str:
@@ -84,20 +98,79 @@ def slugify(prefix: str, key: str) -> str:
     return f"{prefix}_{safe[:48]}_{digest}"
 
 
-def fetch_raw(url: str):
+def assert_allowed_url(url: str) -> None:
+    if not (url.startswith("https://api.crossref.org/") or url.startswith("https://api.openalex.org/")):
+        print(f"FATAL: Disallowed endpoint URL: {url}", file=sys.stderr)
+        sys.exit(1)
+    parsed = urllib.parse.urlsplit(url)
+    if "@" in parsed.query or "@" in parsed.netloc or "mailto" in url.lower():
+        print(f"FATAL: Personal/mailto data forbidden in request URL: {url}", file=sys.stderr)
+        sys.exit(1)
+
+
+def send_single_get(url: str):
+    global total_http_requests_sent
+    assert_allowed_url(url)
+
+    if total_http_requests_sent >= MAX_REQUESTS:
+        print(
+            f"FATAL: Aborting before sending HTTP request #{total_http_requests_sent + 1} "
+            f"(hard limit MAX_REQUESTS={MAX_REQUESTS}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if total_http_requests_sent > 0:
+        time.sleep(MIN_INTERVAL_SECONDS)
+
+    total_http_requests_sent += 1
+    requested_at = utc_now_iso()
     req = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT})
+
     try:
         with urllib.request.urlopen(req, timeout=15.0) as resp:
             body = resp.read()
-            status = resp.status
+            status = int(resp.status)
             ctype = resp.headers.get("Content-Type", "application/json")
-            return status, ctype, body
+            date_hdr = resp.headers.get("Date") or ""
+            return status, ctype, date_hdr, requested_at, body
     except urllib.error.HTTPError as err:
-        body = err.read()
+        body = err.read() if err.fp is not None else b""
         ctype = err.headers.get("Content-Type", "application/json") if err.headers else "application/json"
+        date_hdr = (err.headers.get("Date") if err.headers else None) or ""
         if err.code == 404:
-            return 404, ctype, body
-        raise RuntimeError(f"Upstream HTTP {err.code} for {url}") from err
+            return 404, ctype, date_hdr, requested_at, body
+        if err.code in (429, 403):
+            print(
+                f"FATAL: Upstream returned HTTP {err.code} for {url}; "
+                f"stopping immediately per recording policy (0 retries on 429/403).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if 500 <= err.code < 600:
+            raise TransientUpstreamError(f"Upstream HTTP {err.code} for {url}") from err
+        print(f"FATAL: Unexpected HTTP {err.code} for {url}; stopping immediately.", file=sys.stderr)
+        sys.exit(1)
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as net_err:
+        raise TransientUpstreamError(f"Network/timeout error for {url}: {net_err}") from net_err
+
+
+def fetch_raw(url: str):
+    max_attempts = 1 + MAX_RETRIES_PER_TARGET
+    for attempt in range(1, max_attempts + 1):
+        try:
+            status, ctype, date_hdr, requested_at, body = send_single_get(url)
+            return status, ctype, date_hdr, requested_at, body, attempt
+        except TransientUpstreamError as exc:
+            if attempt >= max_attempts:
+                print(f"FATAL: Failed after {attempt} attempt(s) for {url}: {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(
+                f"WARN: Transient error on attempt {attempt} for {url} ({exc}); "
+                f"retrying once after >={MIN_INTERVAL_SECONDS}s...",
+                file=sys.stderr,
+            )
+    sys.exit(1)
 
 
 def main():
@@ -142,11 +215,15 @@ def main():
         targets.append(("openalex", f"{OPENALEX_BASE}/works?{oa_q}", slugify("openalex_title", title)))
         targets.append(("crossref", f"{CROSSREF_BASE}/works?{cr_q}", slugify("crossref_title", title)))
 
+    if len(targets) > MAX_REQUESTS:
+        print(f"FATAL: Planned target count {len(targets)} exceeds MAX_REQUESTS={MAX_REQUESTS}", file=sys.stderr)
+        sys.exit(1)
+
+    started_at = utc_now_iso()
     manifest_items = []
-    recorded_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     for idx, (service, url, slug) in enumerate(targets, start=1):
-        status, ctype, body = fetch_raw(url)
+        status, ctype, date_hdr, requested_at, body, attempts = fetch_raw(url)
         raw_filename = f"{slug}.raw"
         meta_filename = f"{slug}.meta.json"
         raw_path = os.path.join(out_dir, raw_filename)
@@ -161,27 +238,33 @@ def main():
             "url": url,
             "status": status,
             "content_type": ctype,
-            "recorded_at": recorded_at,
+            "requested_at": requested_at,
+            "response_date_header": date_hdr,
             "raw_file": raw_filename,
             "byte_length": len(body),
             "sha256": hashlib.sha256(body).hexdigest(),
+            "attempts": attempts,
         }
         with open(meta_path, "w", encoding="utf-8") as mf:
             json.dump(meta, mf, indent=2, sort_keys=True)
             mf.write("\n")
 
         manifest_items.append(meta)
-        print(f"[{idx}/{len(targets)}] Recorded {service} HTTP {status} ({len(body)} bytes) -> {raw_filename}")
-        if idx < len(targets):
-            time.sleep(0.25)
+        print(
+            f"[{idx}/{len(targets)}] Recorded {service} HTTP {status} "
+            f"({len(body)} bytes, Date='{date_hdr}', attempts={attempts}) -> {raw_filename}"
+        )
 
+    completed_at = utc_now_iso()
     manifest_path = os.path.join(out_dir, "manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(
             {
-                "recorded_at": recorded_at,
+                "started_at": started_at,
+                "completed_at": completed_at,
                 "user_agent": USER_AGENT,
                 "count": len(manifest_items),
+                "total_http_requests_sent": total_http_requests_sent,
                 "items": manifest_items,
             },
             fh,
@@ -189,7 +272,10 @@ def main():
             sort_keys=True,
         )
         fh.write("\n")
-    print(f"Wrote {len(manifest_items)} recorded upstream fixtures to {out_dir}")
+    print(
+        f"Wrote {len(manifest_items)} recorded upstream fixtures to {out_dir} "
+        f"(total_http_requests_sent={total_http_requests_sent})"
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 4482,
+  "content_type": "application/json",
+  "raw_file": "crossref_doi_10.1038_171737a0_c02e1b29fc.raw",
+  "requested_at": "2026-11-14T20:29:14Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:15 GMT",
+  "service": "crossref",
+  "sha256": "8307b633959046b5a24e995851e12747c553e2e99319a690bce400e00eec3b09",
+  "slug": "crossref_doi_10.1038_171737a0_c02e1b29fc",
+  "status": 200,
+  "url": "https://api.crossref.org/works/10.1038/171737a0"
+}

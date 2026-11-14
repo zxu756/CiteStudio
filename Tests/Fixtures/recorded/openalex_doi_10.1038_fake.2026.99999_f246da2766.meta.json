@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 207,
+  "content_type": "text/html; charset=utf-8",
+  "raw_file": "openalex_doi_10.1038_fake.2026.99999_f246da2766.raw",
+  "requested_at": "2026-11-14T20:29:20Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:20 GMT",
+  "service": "openalex",
+  "sha256": "e9639e3c4681ce85f852fbac48e2eeee5ba51296dbfec57c200d59b76237ab80",
+  "slug": "openalex_doi_10.1038_fake.2026.99999_f246da2766",
+  "status": 404,
+  "url": "https://api.openalex.org/works/https://doi.org/10.1038/fake.2026.99999"
+}

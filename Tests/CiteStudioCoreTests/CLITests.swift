@@ -242,4 +242,199 @@ struct CLITests {
         #expect(readmeEN.contains("defaults to `8`"))
         #expect(readmeZH.contains("默认 `8` 秒"))
     }
+
+    @Test("C20: CLI commands without --lang follow LANG locale (zh_CN.UTF-8 vs en_US.UTF-8), and readme-commands.sh asserts active locale")
+    func c20CLIDefaultLocaleAndReadmeReplayLocaleHandling() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_c20_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let texFile = tmp.appendingPathComponent("clean.tex")
+        try "\\documentclass{article}\n\\begin{document}\nClean manuscript paragraph.\n\\end{document}\n"
+            .write(to: texFile, atomically: true, encoding: .utf8)
+
+        let zhEnv = [
+            "LANG": "zh_CN.UTF-8",
+            "LC_ALL": "",
+            "CITESTUDIO_LANG": "",
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cache_zh").path
+        ]
+        let enEnv = [
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "",
+            "CITESTUDIO_LANG": "",
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cache_en").path
+        ]
+
+        // Without --lang, LANG=zh_CN.UTF-8 produces Chinese CLI output
+        let clearZh = try Self.runSubprocessCLI(args: ["--cli", "clear-cache"], extraEnv: zhEnv)
+        #expect(clearZh.code == 0)
+        #expect(clearZh.stdout.contains("已清空 "))
+
+        let lintZh = try Self.runSubprocessCLI(args: ["--cli", "lint", texFile.path], extraEnv: zhEnv)
+        #expect(lintZh.code == 0)
+        #expect(lintZh.stdout.contains("确定性行文与图表检查共发现问题：0 项"))
+
+        // Without --lang, LANG=en_US.UTF-8 produces English CLI output
+        let clearEn = try Self.runSubprocessCLI(args: ["--cli", "clear-cache"], extraEnv: enEnv)
+        #expect(clearEn.code == 0)
+        #expect(clearEn.stdout.contains("Cleared "))
+
+        let lintEn = try Self.runSubprocessCLI(args: ["--cli", "lint", texFile.path], extraEnv: enEnv)
+        #expect(lintEn.code == 0)
+        #expect(lintEn.stdout.contains("Total deterministic findings: 0"))
+
+        // Verify Scripts/acceptance/readme-commands.sh resolves active locale for commands without --lang
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeScript = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/readme-commands.sh"),
+            encoding: .utf8
+        )
+        #expect(readmeScript.contains("resolve_active_cli_lang"))
+    }
+
+    @Test("C21: Real Tectonic compilation uses Swift Testing .enabled(if:) skip trait and Scripts/test.sh reports skipped counts separately from passed")
+    func c21TectonicTestUsesNativeSkipTraitAndTestRunnerSeparatesSkippedCounts() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let coreTestsSource = try String(
+            contentsOf: repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/CiteStudioCoreTests.swift"),
+            encoding: .utf8
+        )
+        let testRunnerScript = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/test.sh"),
+            encoding: .utf8
+        )
+        let m0AcceptanceScript = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/m0-acceptance.sh"),
+            encoding: .utf8
+        )
+
+        #expect(coreTestsSource.contains(".enabled("))
+        #expect(!coreTestsSource.contains("print(\"SKIPPED: real tectonic compilation"))
+        #expect(testRunnerScript.contains("UNIT_TESTS_SUMMARY:"))
+        #expect(testRunnerScript.contains("MILESTONE_M0_SUMMARY:"))
+        #expect(m0AcceptanceScript.contains("M0_ACCEPTANCE_SUMMARY:"))
+    }
+
+    @Test("C23: validate_recorded_fixtures.py verifies manifest URL/privacy, requested_at, HTTP Date header, and raw SHA-256, and rejects 1-byte tampering or blank Date")
+    func c23RecordedFixtureValidatorAndRecorderHardening() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let validatorURL = repoRoot.appendingPathComponent("Scripts/acceptance/validate_recorded_fixtures.py")
+        let recorderURL = repoRoot.appendingPathComponent("Scripts/acceptance/record-fixtures.sh")
+        #expect(FileManager.default.fileExists(atPath: validatorURL.path))
+
+        let recorderSource = try String(contentsOf: recorderURL, encoding: .utf8)
+        #expect(recorderSource.contains("USER_AGENT = \"CiteStudio/0.2.0\""))
+        #expect(recorderSource.contains("MAX_REQUESTS = 24"))
+        #expect(recorderSource.contains("response_date_header"))
+        #expect(recorderSource.contains("total_http_requests_sent"))
+
+        let m0AcceptanceSource = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/m0-acceptance.sh"),
+            encoding: .utf8
+        )
+        let readmeReplaySource = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/readme-commands.sh"),
+            encoding: .utf8
+        )
+        #expect(m0AcceptanceSource.contains("validate_recorded_fixtures.py"))
+        #expect(readmeReplaySource.contains("validate_recorded_fixtures.py"))
+
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c23_val_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        func runValidator(on dir: URL, allowCount: Int = 1) throws -> (Int32, String, String) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            p.arguments = [validatorURL.path, dir.path, "--min-items", "\(allowCount)"]
+            let out = Pipe()
+            let err = Pipe()
+            p.standardOutput = out
+            p.standardError = err
+            try p.run()
+            p.waitUntilExit()
+            return (
+                p.terminationStatus,
+                String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+                String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            )
+        }
+
+        // Build a valid minimal 1-item fixture directory in tmp
+        let rawBytes = Data(#"{"status":"ok","message":{"DOI":"10.1038/nature14539"}}"#.utf8)
+        let rawPath = tmp.appendingPathComponent("crossref_doi_sample.raw")
+        try rawBytes.write(to: rawPath)
+
+        // Compute sha256 via /usr/bin/shasum -a 256
+        let shaProc = Process()
+        shaProc.executableURL = URL(fileURLWithPath: "/usr/bin/shasum")
+        shaProc.arguments = ["-a", "256", rawPath.path]
+        let shaPipe = Pipe()
+        shaProc.standardOutput = shaPipe
+        try shaProc.run()
+        shaProc.waitUntilExit()
+        let shaOut = String(data: shaPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let digest = String(shaOut.split(separator: " ").first ?? "")
+
+        let item: [String: Any] = [
+            "slug": "crossref_doi_sample",
+            "service": "crossref",
+            "url": "https://api.crossref.org/works/10.1038/nature14539",
+            "status": 200,
+            "requested_at": "2026-11-15T00:00:00Z",
+            "response_date_header": "Sun, 15 Nov 2026 00:00:00 GMT",
+            "content_type": "application/json;charset=UTF-8",
+            "raw_file": "crossref_doi_sample.raw",
+            "byte_length": rawBytes.count,
+            "sha256": digest,
+            "attempts": 1
+        ]
+        let metaData = try JSONSerialization.data(withJSONObject: item, options: [.prettyPrinted, .sortedKeys])
+        try metaData.write(to: tmp.appendingPathComponent("crossref_doi_sample.meta.json"))
+
+        let manifest: [String: Any] = [
+            "started_at": "2026-11-15T00:00:00Z",
+            "completed_at": "2026-11-15T00:00:02Z",
+            "user_agent": "CiteStudio/0.2.0",
+            "count": 1,
+            "total_http_requests_sent": 1,
+            "items": [item]
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: tmp.appendingPathComponent("manifest.json"))
+
+        // 1. Valid directory passes
+        let validRes = try runValidator(on: tmp, allowCount: 1)
+        #expect(validRes.0 == 0, "Expected valid manifest to pass, stderr=\(validRes.2)")
+
+        // 2. Corrupt 1 byte in .raw -> MUST fail!
+        var corrupted = rawBytes
+        corrupted[0] ^= 0x01
+        try corrupted.write(to: rawPath)
+        let corruptRes = try runValidator(on: tmp, allowCount: 1)
+        #expect(corruptRes.0 != 0)
+        try rawBytes.write(to: rawPath) // restore
+
+        // 3. Blank response_date_header -> MUST fail!
+        var badItem = item
+        badItem["response_date_header"] = ""
+        var badManifest = manifest
+        badManifest["items"] = [badItem]
+        try JSONSerialization.data(withJSONObject: badItem, options: [.prettyPrinted, .sortedKeys])
+            .write(to: tmp.appendingPathComponent("crossref_doi_sample.meta.json"))
+        try JSONSerialization.data(withJSONObject: badManifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: tmp.appendingPathComponent("manifest.json"))
+        let blankDateRes = try runValidator(on: tmp, allowCount: 1)
+        #expect(blankDateRes.0 != 0)
+    }
 }

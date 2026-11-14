@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 23124,
+  "content_type": "application/json",
+  "raw_file": "crossref_doi_10.1016_j.fct.2012.08.005_289ea237f0.raw",
+  "requested_at": "2026-11-14T20:29:25Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:26 GMT",
+  "service": "crossref",
+  "sha256": "a3d2ff8021ac50bd8ba4d4b123ed41839a11d521d71d2c0542a9410ef9bb30e0",
+  "slug": "crossref_doi_10.1016_j.fct.2012.08.005_289ea237f0",
+  "status": 200,
+  "url": "https://api.crossref.org/works/10.1016/j.fct.2012.08.005"
+}

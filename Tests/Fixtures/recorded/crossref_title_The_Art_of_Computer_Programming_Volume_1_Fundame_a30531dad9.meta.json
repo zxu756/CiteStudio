@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 5177,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9.raw",
+  "requested_at": "2026-11-14T20:29:39Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:40 GMT",
+  "service": "crossref",
+  "sha256": "201553e030eb886ad03f179fde1e9171fade6f3f989663c42e7ad41f66222e74",
+  "slug": "crossref_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=The%20Art%20of%20Computer%20Programming,%20Volume%201:%20Fundamental%20Algorithms&rows=3"
+}

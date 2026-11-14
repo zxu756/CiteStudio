@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 30776,
+  "content_type": "application/json",
+  "raw_file": "openalex_doi_10.48550_arxiv.1706.03762_f81aabcbd3.raw",
+  "requested_at": "2026-11-14T20:29:35Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:35 GMT",
+  "service": "openalex",
+  "sha256": "60af926c6a42eee1303e4ef38887d81f71e6b2d534a89c715adcde330ed63740",
+  "slug": "openalex_doi_10.48550_arxiv.1706.03762_f81aabcbd3",
+  "status": 200,
+  "url": "https://api.openalex.org/works/https://doi.org/10.48550/arxiv.1706.03762"
+}

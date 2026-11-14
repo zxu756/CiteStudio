@@ -371,4 +371,193 @@ struct FirewallTests {
         #expect(dGhost.kind == .ghostPaper)
         #expect(ghostTriangulator.rawCacheRowCount() == 1)
     }
+
+    @Test("C22: parseOpenAlexWork & queryOpenAlexByDOI cover every kept branch (display_name, raw_author_name, repository source.type, missing-source OpenAlex Indexed Venue fallback, results wrapper) and TestFixtures.swift has honest comment")
+    func c22OpenAlexParserBranchesAndHonestTestFixturesComment() async throws {
+        // 1. Missing primary_location.source -> reverts to "OpenAlex Indexed Venue" with publishedUpgradeVenue == nil
+        let minimalWork: [String: Any] = [
+            "display_name": "Fallback Display Name Only",
+            "publication_year": 2021,
+            "doi": "https://doi.org/10.5281/zenodo.12345",
+            "is_retracted": false,
+            "authorships": [
+                ["author": ["display_name": ""], "raw_author_name": "Ada Lovelace"],
+                ["raw_author_name": "Charles Babbage"]
+            ]
+        ]
+        let parsedMinimal = try #require(PublicScholarHTTPTransport.parseOpenAlexWork(minimalWork))
+        #expect(parsedMinimal.title == "Fallback Display Name Only")
+        #expect(parsedMinimal.year == 2021)
+        #expect(parsedMinimal.doi == "10.5281/zenodo.12345")
+        #expect(parsedMinimal.authors == ["Ada Lovelace", "Charles Babbage"])
+        #expect(parsedMinimal.venue == "OpenAlex Indexed Venue")
+        #expect(parsedMinimal.publishedUpgradeVenue == nil)
+        #expect(parsedMinimal.publishedUpgradeDOI == nil)
+        #expect(parsedMinimal.publishedUpgradeYear == nil)
+
+        // 2. Repository source whose display_name does NOT contain "arxiv" (e.g., "Cornell University", type="repository")
+        //    MUST set publishedUpgradeVenue = nil so citing an arXiv entry does not falsely trigger PreprintUpgrade
+        let repoWork: [String: Any] = [
+            "title": "Attention Is All You Need",
+            "publication_year": 2017,
+            "doi": "https://doi.org/10.48550/arxiv.1706.03762",
+            "authorships": [["author": ["display_name": "Ashish Vaswani"]]],
+            "primary_location": [
+                "source": [
+                    "display_name": "Cornell University",
+                    "type": "repository"
+                ]
+            ]
+        ]
+        let parsedRepo = try #require(PublicScholarHTTPTransport.parseOpenAlexWork(repoWork))
+        #expect(parsedRepo.venue == "Cornell University")
+        #expect(parsedRepo.publishedUpgradeVenue == nil)
+
+        // 3. Journal/conference source (type="journal") sets publishedUpgradeVenue to the peer-reviewed venue
+        let journalWork: [String: Any] = [
+            "title": "Deep Residual Learning for Image Recognition",
+            "publication_year": 2016,
+            "doi": "https://doi.org/10.1109/cvpr.2016.90",
+            "authorships": [["author": ["display_name": "Kaiming He"]]],
+            "primary_location": [
+                "source": [
+                    "display_name": "IEEE Conference on Computer Vision and Pattern Recognition",
+                    "type": "conference"
+                ]
+            ]
+        ]
+        let parsedJournal = try #require(PublicScholarHTTPTransport.parseOpenAlexWork(journalWork))
+        #expect(parsedJournal.venue == "IEEE Conference on Computer Vision and Pattern Recognition")
+        #expect(parsedJournal.publishedUpgradeVenue == "IEEE Conference on Computer Vision and Pattern Recognition")
+        #expect(parsedJournal.publishedUpgradeYear == 2016)
+
+        // 4. queryOpenAlexByDOI handles {"results": [...]} list wrapper and empty {"results": []} over real HTTP
+        let listServer = try LoopbackOpenAlexResultsWrapperServer()
+        defer { listServer.stop() }
+        let wrapperTransport = PublicScholarHTTPTransport(
+            crossrefBaseURL: listServer.crossrefBaseURL,
+            openAlexBaseURL: listServer.openAlexBaseURL,
+            timeoutInterval: 1.5
+        )
+        let hitEntry = try #require(BibTeXParser.parseBibTeX("""
+        @article{wrap_hit, author = {Lovelace, Ada}, title = {Analytical Engine Notes}, journal = {arXiv}, year = {2020}, doi = {10.48550/arXiv.2001.00001}}
+        """).first)
+        let hitOutcome = await wrapperTransport.lookupOutcome(entry: hitEntry)
+        if case .found(let rec) = hitOutcome {
+            #expect(rec.title == "Analytical Engine Notes")
+            #expect(rec.authors == ["Ada Lovelace"])
+            #expect(rec.year == 2020)
+            #expect(rec.publishedUpgradeVenue == nil)
+        } else {
+            Issue.record("Expected .found from OpenAlex results wrapper, got \(hitOutcome)")
+        }
+
+        let emptyEntry = try #require(BibTeXParser.parseBibTeX("""
+        @article{wrap_empty, author = {Nobody, X.}, title = {Missing Work}, journal = {arXiv}, year = {2020}, doi = {10.48550/arXiv.2001.99999}}
+        """).first)
+        let emptyOutcome = await wrapperTransport.lookupOutcome(entry: emptyEntry)
+        #expect(emptyOutcome == .confirmedNotFound)
+
+        // 5. TestFixtures.swift must not claim "recorded-structure" for handwritten unit-test JSON
+        let fixturesPath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("TestFixtures.swift")
+        let fixturesSource = try String(contentsOf: fixturesPath, encoding: .utf8)
+        #expect(!fixturesSource.lowercased().contains("recorded-structure"))
+        #expect(fixturesSource.contains("手写最小单元测试响应"))
+    }
+}
+
+/// Minimal loopback helper testing OpenAlex `{"results": [...]}` wrapper payloads on `/works/https://doi.org/...`.
+private final class LoopbackOpenAlexResultsWrapperServer: @unchecked Sendable {
+    private var listenFD: Int32 = -1
+    private let lock = NSLock()
+    private var stopped = false
+    let port: UInt16
+
+    var crossrefBaseURL: URL { URL(string: "http://127.0.0.1:\(port)/crossref")! }
+    var openAlexBaseURL: URL { URL(string: "http://127.0.0.1:\(port)/openalex")! }
+
+    init() throws {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        _ = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        _ = Darwin.listen(fd, 16)
+        var bound = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &bound) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.getsockname(fd, $0, &len)
+            }
+        }
+        self.listenFD = fd
+        self.port = UInt16(bigEndian: bound.sin_port)
+        DispatchQueue.global().async { [weak self] in self?.loop() }
+    }
+
+    deinit { stop() }
+
+    func stop() {
+        let fd: Int32 = lock.withLock {
+            if stopped { return -1 }
+            stopped = true
+            let cur = listenFD
+            listenFD = -1
+            return cur
+        }
+        if fd >= 0 {
+            Darwin.shutdown(fd, SHUT_RDWR)
+            Darwin.close(fd)
+        }
+    }
+
+    private func loop() {
+        while true {
+            let lfd = lock.withLock { stopped ? -1 : listenFD }
+            if lfd < 0 { break }
+            var caddr = sockaddr_in()
+            var clen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let cfd = withUnsafeMutablePointer(to: &caddr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.accept(lfd, $0, &clen)
+                }
+            }
+            if cfd < 0 { break }
+            var buf = [UInt8](repeating: 0, count: 4096)
+            let n = Darwin.read(cfd, &buf, buf.count)
+            if n > 0 {
+                let req = String(decoding: buf[0..<n], as: UTF8.self)
+                let target = String((req.components(separatedBy: "\r\n").first ?? "").split(separator: " ").dropFirst().first ?? "")
+                let (code, body): (Int, String)
+                if target.hasPrefix("/crossref/") {
+                    code = 404
+                    body = #"{"status":"failed"}"#
+                } else if target.contains("2001.00001") {
+                    code = 200
+                    body = #"{"results":[{"display_name":"Analytical Engine Notes","publication_year":2020,"doi":"https://doi.org/10.48550/arxiv.2001.00001","authorships":[{"raw_author_name":"Ada Lovelace"}],"primary_location":{"source":{"display_name":"Repository Host","type":"repository"}}}]}"#
+                } else {
+                    code = 200
+                    body = #"{"results":[]}"#
+                }
+                let bytes = Array(body.utf8)
+                let resp = Array("HTTP/1.1 \(code) OK\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n".utf8) + bytes
+                resp.withUnsafeBytes { ptr in
+                    if let base = ptr.baseAddress {
+                        _ = Darwin.write(cfd, base, resp.count)
+                    }
+                }
+            }
+            Darwin.close(cfd)
+        }
+    }
 }

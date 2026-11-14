@@ -87,10 +87,9 @@ run_suite() {
     export CITESTUDIO_EPHEMERAL_DEFAULTS=1
     mkdir -p "${HOME}"
 
-    HAS_RECORDED_FIXTURES=0
-    if [[ -f "${RECORDED_DIR}/manifest.json" ]] && compgen -G "${RECORDED_DIR}/*.meta.json" >/dev/null; then
-        HAS_RECORDED_FIXTURES=1
-    fi
+    echo "[C23] Validating recorded upstream fixtures in Tests/Fixtures/recorded/..."
+    python3 "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" --min-items 20
+    HAS_RECORDED_FIXTURES=1
 
     # Local 127.0.0.1 loopback server:
     # - Upstream responses in replay mode come STRICTLY from Tests/Fixtures/recorded/*.meta.json + raw files (C15).
@@ -242,6 +241,10 @@ PYEOF
     CLOSED_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); p=s.getsockname()[1]; s.close(); print(p)')"
     SKIP_RECORD_MSG="SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval"
 
+    ACC_PASSED=0
+    ACC_SKIPPED=0
+    ACC_SKIPPED_ITEMS=()
+
     # ------------------------------------------------------------------
     # ROW 1: Offline first -> all Unverified, 0 cache entries;
     #        then online replay (if recorded fixtures present) -> re-queries & verifies!
@@ -293,6 +296,7 @@ conn.close()
 assert count == 0, f"Offline Unverified must write 0 cache rows, found {count}"
 PYEOF
     echo "[PASS] Row 1a (Offline): 12/12 Unverified ([Unverified | 未验证]), 0 GhostPaper, 0 SQLite cache rows (exit=${ROW1_OFFLINE_CODE})."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
     if [[ "${HAS_RECORDED_FIXTURES}" -eq 1 ]]; then
         BEFORE_REQS="$(python3 -c "import json,urllib.request; print(json.load(urllib.request.urlopen('${LOOPBACK_BASE}/_stats'))['requests'])")"
@@ -315,8 +319,11 @@ for real_key in ("real_lecun", "real_lstm", "real_watson"):
     assert by_key[real_key] == "Verified", f"Expected {real_key}=Verified, got {by_key[real_key]}"
 PYEOF
         echo "[PASS] Row 1b (Online Recorded Replay): Sent $((AFTER_REQS - BEFORE_REQS)) fresh requests and verified real_lecun, real_lstm, real_watson."
+        ACC_PASSED=$((ACC_PASSED + 1))
     else
         echo "[Row 1b - Online Replay] ${SKIP_RECORD_MSG}"
+        ACC_SKIPPED=$((ACC_SKIPPED + 1))
+        ACC_SKIPPED_ITEMS+=("Row 1b")
     fi
 
     # ------------------------------------------------------------------
@@ -365,6 +372,7 @@ PYEOF
     done
     python3 -c "import urllib.request; req=urllib.request.Request('${LOOPBACK_BASE}/_mode/replay', method='POST'); urllib.request.urlopen(req).read()"
     echo "[PASS] Row 2: HTTP 429, HTTP 500, malformed JSON, and timeout all classified as Unverified with 0 negative-cache entries."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
     # ROW 3: Real DOI + wrong title -> MetadataMismatch; add_verified_bibtex rejects
@@ -428,8 +436,11 @@ assert "ERR_UNVERIFIED_CITATION" in text and "MetadataMismatch" in text, text
 assert sha_before == sha_after, "Target .bib file must remain untouched upon rejection"
 PYEOF
         echo "[PASS] Row 3: Recorded replay flagged wrong title as MetadataMismatch and rejected add_verified_bibtex."
+        ACC_PASSED=$((ACC_PASSED + 1))
     else
         echo "[Row 3] ${SKIP_RECORD_MSG}"
+        ACC_SKIPPED=$((ACC_SKIPPED + 1))
+        ACC_SKIPPED_ITEMS+=("Row 3")
     fi
 
     # ------------------------------------------------------------------
@@ -468,8 +479,11 @@ assert by_key == {"retracted_seralini": "Retracted", "retracted_wakefield": "Ret
 assert zh.count("[Retracted | 已撤稿]") == 2, zh
 PYEOF
         echo "[PASS] Row 4: Recorded replay classified Wakefield 1998 and Séralini 2012 as Retracted ([已撤稿])."
+        ACC_PASSED=$((ACC_PASSED + 1))
     else
         echo "[Row 4] ${SKIP_RECORD_MSG}"
+        ACC_SKIPPED=$((ACC_SKIPPED + 1))
+        ACC_SKIPPED_ITEMS+=("Row 4")
     fi
 
     # ------------------------------------------------------------------
@@ -517,8 +531,11 @@ assert "deep learning" in bib_content.lower(), f"Expected canonical upstream tit
 assert bib_content.count("@article{real_lecun,") == 1, f"Expected single deduplicated entry in:\n{bib_content}"
 PYEOF
         echo "[PASS] Row 5: Recorded replay wrote canonical upstream metadata and skipped duplicate citeKey."
+        ACC_PASSED=$((ACC_PASSED + 1))
     else
         echo "[Row 5] ${SKIP_RECORD_MSG}"
+        ACC_SKIPPED=$((ACC_SKIPPED + 1))
+        ACC_SKIPPED_ITEMS+=("Row 5")
     fi
 
     # ------------------------------------------------------------------
@@ -552,6 +569,7 @@ assert "File does not exist" in err_en, err_en
 assert "文件不存在" in err_zh, err_zh
 PYEOF
     echo "[PASS] Row 6: --cli lint /nonexistent.tex exited ${CODE_EN} (EN) / ${CODE_ZH} (ZH) with clear file-not-found stderr message."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
     # ROW 7 (C19): Headless ViewModel Default Empty State (ZERO GUI Launch!)
@@ -566,6 +584,7 @@ assert "Test run with 1 test" in out or "1 test in 1 suite passed" in out, out
 assert "✔ Test \"C8 (Row 7):" in out, out
 PYEOF
     echo "[PASS] Row 7 (C19): Verified default empty workspace (0 manuscript, 0 bib, 0 diagnostics, isDemoMode=false) headlessly via WorkspaceTests (0 GUI processes launched)."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
     # ROW 8 + Supplemental C16: Full 12-entry test.bib + 10.48550/arXiv.1706.03762 (Recorded Replay)
@@ -634,13 +653,35 @@ assert cli_map == mcp_map, f"CLI and MCP verdicts diverged:\nCLI={cli_map}\nMCP=
 for k, v in cli_map.items():
     print(f"  {k:22s} -> CLI={v:16s} | MCP={mcp_map[k]:16s}")
 
+expected_m0_11 = {
+    "real_lecun": "Verified",
+    "real_lstm": "Verified",
+    "real_watson": "Verified",
+    "fake_nonsentinel": "GhostPaper",
+    "fake_sentinel": "GhostPaper",
+    "wrongtitle": "MetadataMismatch",
+    "wrongyear": "MetadataMismatch",
+    "wrongyear5": "MetadataMismatch",
+    "fake_nodoi": "GhostPaper",
+    "retracted_seralini": "Retracted",
+    "retracted_wakefield": "Retracted",
+}
+for k, exp_v in expected_m0_11.items():
+    assert cli_map[k] == exp_v, f"Row 8 expected {k}={exp_v}, got {cli_map[k]}"
+assert cli_map["real_nodoi"] == "MetadataMismatch", (
+    f"Row 8 C5 baseline (real_nodoi Knuth 1968): expected MetadataMismatch on recorded Odeh 1969 book review, got {cli_map['real_nodoi']}"
+)
+
 c16_verdict = c16_data["entries"][0]["verdict"]
-assert c16_verdict != "GhostPaper", f"C16 DataCite arXiv DOI 10.48550/arXiv.1706.03762 must not be GhostPaper, got {c16_verdict}"
+assert c16_verdict == "Verified", f"C16 DataCite arXiv DOI 10.48550/arXiv.1706.03762 expected Verified, got {c16_verdict}"
 print(f"  [C16] 10.48550/arXiv.1706.03762 -> {c16_verdict} (not GhostPaper)")
 PYEOF
         echo "[PASS] Row 8 + C16: CLI verify and MCP verify_citation matched across recorded fixtures; 10.48550/arXiv.1706.03762 != GhostPaper."
+        ACC_PASSED=$((ACC_PASSED + 2))
     else
         echo "[Row 8 & C16 Recorded Replay] ${SKIP_RECORD_MSG}"
+        ACC_SKIPPED=$((ACC_SKIPPED + 2))
+        ACC_SKIPPED_ITEMS+=("Row 8" "Supplemental C16")
     fi
 
     # ------------------------------------------------------------------
@@ -655,6 +696,54 @@ out = sys.argv[1]
 assert "✔ Test \"C13 + C14:" in out, out
 PYEOF
     echo "[PASS] Supplemental C13/C14: 1 PreprintUpgrade entry exits 1 on --cli verify (matching README.md & README.zh-CN.md), timeout=8.0s."
+    ACC_PASSED=$((ACC_PASSED + 1))
+
+    # ------------------------------------------------------------------
+    # SUPPLEMENTAL C23: Recorded Fixture SHA-256 & HTTP Date Tamper Rejection Gate
+    # ------------------------------------------------------------------
+    echo ""
+    echo "--- Supplemental C23: Recorded Fixture SHA-256 & HTTP Date Tamper Rejection Gate ---"
+    python3 - "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" "${TMP_ROOT}" <<'PYEOF'
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+validator_py, rec_dir, tmp_root = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# 1. Corrupt 1 byte in a temporary copy of the first .raw file -> validator MUST reject
+tamper_raw_dir = os.path.join(tmp_root, "c23_tamper_raw")
+shutil.copytree(rec_dir, tamper_raw_dir)
+manifest = json.load(open(os.path.join(tamper_raw_dir, "manifest.json"), encoding="utf-8"))
+first_raw = os.path.join(tamper_raw_dir, manifest["items"][0]["raw_file"])
+orig_bytes = bytearray(open(first_raw, "rb").read())
+assert len(orig_bytes) > 0, "Expected non-empty first .raw fixture"
+orig_bytes[0] ^= 0x01
+with open(first_raw, "wb") as bf:
+    bf.write(bytes(orig_bytes))
+r1 = subprocess.run([sys.executable, validator_py, tamper_raw_dir, "--min-items", "20"], capture_output=True, text=True)
+assert r1.returncode != 0, f"Expected 1-byte .raw tamper to fail validator, got exit 0:\n{r1.stdout}"
+assert "sha256 mismatch" in r1.stderr, f"Expected sha256 mismatch error, got:\n{r1.stderr}"
+
+# 2. Blank response_date_header in a temporary copy -> validator MUST reject
+tamper_date_dir = os.path.join(tmp_root, "c23_tamper_date")
+shutil.copytree(rec_dir, tamper_date_dir)
+m2_path = os.path.join(tamper_date_dir, "manifest.json")
+m2 = json.load(open(m2_path, encoding="utf-8"))
+m2["items"][0]["response_date_header"] = ""
+slug0 = m2["items"][0]["slug"]
+meta0_path = os.path.join(tamper_date_dir, f"{slug0}.meta.json")
+with open(meta0_path, "w", encoding="utf-8") as fh:
+    json.dump(m2["items"][0], fh, indent=2, sort_keys=True)
+with open(m2_path, "w", encoding="utf-8") as fh:
+    json.dump(m2, fh, indent=2, sort_keys=True)
+r2 = subprocess.run([sys.executable, validator_py, tamper_date_dir, "--min-items", "20"], capture_output=True, text=True)
+assert r2.returncode != 0, f"Expected blank response_date_header to fail validator, got exit 0:\n{r2.stdout}"
+assert "response_date_header" in r2.stderr, f"Expected response_date_header error, got:\n{r2.stderr}"
+PYEOF
+    echo "[PASS] Supplemental C23: Validator rejected 1-byte .raw SHA-256 tamper and blank response_date_header in isolated temp copies."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
     # SUPPLEMENTAL W1: Scripted Mutation Verification
@@ -779,13 +868,14 @@ PYEOF
         exit 1
     fi
     echo "[PASS] Supplemental W1: All 6 scripted mutations failed their exact named @Test after clean build, and working tree was restored cleanly."
+    ACC_PASSED=$((ACC_PASSED + 1))
 
+    ACC_TOTAL=$((ACC_PASSED + ACC_SKIPPED))
     echo ""
     echo "=================================================================="
-    if [[ "${HAS_RECORDED_FIXTURES}" -eq 1 ]]; then
-        echo "SUMMARY: All M0 offline/fault/CLI/headless/W1 checks AND recorded-fixture replay checks PASSED."
-    else
-        echo "SUMMARY: Offline/fault/CLI/headless/C13/W1 checks PASSED; recorded-fixture replay rows (1b, 3, 4, 5, 8, live C16) SKIPPED (没跑 — awaiting user approval for CITESTUDIO_RECORD=1)."
+    echo "M0_ACCEPTANCE_SUMMARY: total=${ACC_TOTAL} passed=${ACC_PASSED} skipped=${ACC_SKIPPED} (skipped items NOT counted as passed)"
+    if [[ "${ACC_SKIPPED}" -gt 0 ]]; then
+        echo "SKIPPED_ITEMS: ${ACC_SKIPPED_ITEMS[*]}"
     fi
     echo "=================================================================="
 }

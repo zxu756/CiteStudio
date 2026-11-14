@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 32037,
+  "content_type": "application/json",
+  "raw_file": "openalex_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9.raw",
+  "requested_at": "2026-11-14T20:29:37Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:37 GMT",
+  "service": "openalex",
+  "sha256": "98eb1bd079a0cbc95b7f1910eab4e0de15e04b170e67b9c8231141392a2a29cb",
+  "slug": "openalex_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9",
+  "status": 200,
+  "url": "https://api.openalex.org/works?search=The%20Art%20of%20Computer%20Programming,%20Volume%201:%20Fundamental%20Algorithms&per-page=3"
+}

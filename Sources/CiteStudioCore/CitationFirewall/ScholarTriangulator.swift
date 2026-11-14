@@ -391,23 +391,18 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         }
 
         let primarySource = (work["primary_location"] as? [String: Any])?["source"] as? [String: Any]
-        let hostVenue = work["host_venue"] as? [String: Any]
-        let rawVenueName = (primarySource?["display_name"] as? String) ?? (hostVenue?["display_name"] as? String)
-        let sourceType = ((primarySource?["type"] as? String) ?? (hostVenue?["type"] as? String))?.lowercased()
+        let rawVenueName = primarySource?["display_name"] as? String
+        let sourceType = (primarySource?["type"] as? String)?.lowercased()
 
         let venue: String
         let isVenuePeerReviewed: Bool
         if let rawVenueName, !sanitizeUpstreamText(rawVenueName).isEmpty {
             venue = sanitizeUpstreamText(rawVenueName)
             let vLower = venue.lowercased()
-            let isPreprintRepo = vLower.contains("arxiv")
-                || vLower.contains("biorxiv")
-                || vLower.contains("medrxiv")
-                || vLower.contains("zenodo")
-                || sourceType == "repository"
+            let isPreprintRepo = vLower.contains("arxiv") || sourceType == "repository"
             isVenuePeerReviewed = !isPreprintRepo
         } else {
-            venue = (doi?.hasPrefix("10.48550/arxiv.") == true) ? "arXiv" : "OpenAlex"
+            venue = "OpenAlex Indexed Venue"
             isVenuePeerReviewed = false
         }
 

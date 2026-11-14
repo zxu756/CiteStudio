@@ -114,10 +114,18 @@ with open(os.path.join(ws_dir, "path", "to", "main.tex"), "w", encoding="utf-8")
     tf.write("\\documentclass{article}\n\\begin{document}\nClean deterministic manuscript paragraph.\n\\end{document}\n")
 
 recorded_dir = os.path.join(root_dir, "Tests", "Fixtures", "recorded")
-has_recorded = (
-    os.path.isfile(os.path.join(recorded_dir, "manifest.json"))
-    and len(glob.glob(os.path.join(recorded_dir, "*.meta.json"))) > 0
+validator_py = os.path.join(root_dir, "Scripts", "acceptance", "validate_recorded_fixtures.py")
+val_res = subprocess.run(
+    [sys.executable, validator_py, recorded_dir, "--min-items", "20"],
+    cwd=root_dir,
+    capture_output=True,
+    text=True,
 )
+if val_res.returncode != 0:
+    print(f"FAIL: Recorded fixtures validation failed:\n{val_res.stderr}\n{val_res.stdout}", file=sys.stderr)
+    sys.exit(1)
+print(f"[PASS] C23 validator: {val_res.stdout.strip()}")
+has_recorded = True
 
 replay_index = {}
 replay_server = None
@@ -174,6 +182,21 @@ if has_recorded:
     t.start()
     replay_base = f"http://127.0.0.1:{replay_server.server_address[1]}"
 
+def resolve_active_cli_lang(env_map):
+    for key in ("CITESTUDIO_LANG", "LC_ALL", "LANG"):
+        raw = env_map.get(key)
+        if raw is None:
+            continue
+        token = raw.strip().lower()
+        if not token:
+            continue
+        if token in ("中文", "cn") or token.startswith("zh"):
+            return "zh"
+        if token.startswith("en"):
+            return "en"
+    return "en"
+
+
 base_env = dict(os.environ)
 base_env["HOME"] = fake_home
 base_env["CITESTUDIO_CACHE_DIR"] = cache_dir
@@ -182,7 +205,10 @@ if replay_base:
     base_env["CITESTUDIO_CROSSREF_BASE_URL"] = f"{replay_base}/crossref"
     base_env["CITESTUDIO_OPENALEX_BASE_URL"] = f"{replay_base}/openalex"
 
-executed_count = 0
+active_lang = resolve_active_cli_lang(base_env)
+print(f"[INFO] Active default CLI language resolved from environment: {active_lang}")
+
+passed_count = 0
 skipped_count = 0
 
 try:
@@ -217,7 +243,7 @@ try:
             link_build = os.path.join(ws_dir, ".build")
             if not os.path.lexists(link_build):
                 os.symlink(os.path.join(root_dir, ".build"), link_build)
-            executed_count += 1
+            passed_count += 1
             print("  [PASS] exit=0, verified executable .build/debug/CiteStudio exists.")
             continue
 
@@ -231,17 +257,21 @@ try:
                 continue
             res = subprocess.run(cmd, shell=True, cwd=ws_dir, env=base_env, capture_output=True, text=True)
             assert res.returncode == 0, f"verify failed ({res.returncode}):\n{res.stdout}\n{res.stderr}"
+            cmd_lang = "zh" if "--lang zh" in cmd else ("en" if "--lang en" in cmd else active_lang)
             if "--json" in cmd:
                 payload = json.loads(res.stdout)
                 assert payload["summary"]["verified"] == 1, payload
-                print("  [PASS] exit=0, JSON summary.verified == 1.")
-            elif "--lang zh" in cmd:
-                assert "已验证(Verified)=1" in res.stdout, res.stdout
-                print("  [PASS] exit=0, matched '已验证(Verified)=1'.")
+                assert payload["entries"][0]["verdict"] == "Verified", payload
+                expected_badge = "已验证" if cmd_lang == "zh" else "VERIFIED"
+                assert payload["entries"][0]["badge"] == expected_badge, payload
+                print(f"  [PASS] exit=0, JSON summary.verified == 1, verdict == 'Verified', badge == '{expected_badge}'.")
+            elif cmd_lang == "zh":
+                assert "[Verified | 已验证]" in res.stdout and "已验证(Verified)=1" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched '[Verified | 已验证]' and '已验证(Verified)=1'.")
             else:
-                assert "Verified=1" in res.stdout, res.stdout
-                print("  [PASS] exit=0, matched 'Verified=1'.")
-            executed_count += 1
+                assert "[Verified]" in res.stdout and "Summary: Evaluated=1 Verified=1" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched '[Verified]' and 'Summary: Evaluated=1 Verified=1'.")
+            passed_count += 1
             continue
 
         if cmd == ".build/debug/CiteStudio --cli compile path/to/main.tex":
@@ -254,9 +284,13 @@ try:
                 continue
             res = subprocess.run(cmd, shell=True, cwd=ws_dir, env=base_env, capture_output=True, text=True)
             assert res.returncode == 0, f"compile failed ({res.returncode}):\n{res.stdout}\n{res.stderr}"
-            assert "Succeeded: true" in res.stdout, res.stdout
-            executed_count += 1
-            print("  [PASS] exit=0, matched 'Succeeded: true'.")
+            if active_lang == "zh":
+                assert "成功：true" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched '成功：true'.")
+            else:
+                assert "Succeeded: true" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched 'Succeeded: true'.")
+            passed_count += 1
             continue
 
         # Execute remaining deterministic CLI / MCP commands and assert both exit code & stdout
@@ -268,20 +302,32 @@ try:
         if cmd == ".build/debug/CiteStudio --cli status":
             assert res.returncode == 0, f"status exited {res.returncode}: {res.stderr}"
             assert "CiteStudio 0.2.0 | Tectonic:" in res.stdout and "| Typst:" in res.stdout, res.stdout
-            print("  [PASS] exit=0, matched 'CiteStudio 0.2.0 | Tectonic: ... | Typst: ...'.")
+            if active_lang == "zh":
+                assert "not installed" not in res.stdout, res.stdout
+            else:
+                assert "未安装" not in res.stdout, res.stdout
+            print(f"  [PASS] exit=0, matched 'CiteStudio 0.2.0 | Tectonic: ... | Typst: ...' (locale={active_lang}).")
         elif cmd == ".build/debug/CiteStudio --cli clear-cache":
             assert res.returncode == 0, f"clear-cache exited {res.returncode}: {res.stderr}"
-            assert "Cleared " in res.stdout and "cached citation verification entries" in res.stdout, res.stdout
             assert os.path.isfile(os.path.join(cache_dir, "scholar_cache.sqlite")), "Product cache DB not created"
-            print("  [PASS] exit=0, matched 'Cleared ... cached citation verification entries' (product SQLite DB verified).")
+            if active_lang == "zh":
+                assert "已清空 " in res.stdout and "条引文核查缓存记录" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched '已清空 ... 条引文核查缓存记录' (locale=zh, product SQLite DB verified).")
+            else:
+                assert "Cleared " in res.stdout and "cached citation verification entries" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched 'Cleared ... cached citation verification entries' (locale=en, product SQLite DB verified).")
         elif cmd == ".build/debug/CiteStudio --cli clear-cache --lang zh":
             assert res.returncode == 0, f"clear-cache zh exited {res.returncode}: {res.stderr}"
             assert "已清空 " in res.stdout and "条引文核查缓存记录" in res.stdout, res.stdout
             print("  [PASS] exit=0, matched '已清空 ... 条引文核查缓存记录'.")
         elif cmd == ".build/debug/CiteStudio --cli lint path/to/main.tex":
             assert res.returncode == 0, f"lint exited {res.returncode}: {res.stderr}"
-            assert "Total deterministic findings: 0" in res.stdout, res.stdout
-            print("  [PASS] exit=0, matched 'Total deterministic findings: 0'.")
+            if active_lang == "zh":
+                assert "确定性行文与图表检查共发现问题：0 项" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched '确定性行文与图表检查共发现问题：0 项' (locale=zh).")
+            else:
+                assert "Total deterministic findings: 0" in res.stdout, res.stdout
+                print("  [PASS] exit=0, matched 'Total deterministic findings: 0' (locale=en).")
         elif cmd == ".build/debug/CiteStudio --cli lint path/to/main.tex --lang zh":
             assert res.returncode == 0, f"lint zh exited {res.returncode}: {res.stderr}"
             assert "确定性行文与图表检查共发现问题：0 项" in res.stdout, res.stdout
@@ -303,7 +349,7 @@ try:
         else:
             raise AssertionError(f"Unhandled README command lacks explicit output assertion: {cmd}")
 
-        executed_count += 1
+        passed_count += 1
 
     # Also verify C15 recorder default gate (CITESTUDIO_RECORD unset -> exit 0 + SKIPPED message, zero network)
     rec_env = dict(base_env)
@@ -318,8 +364,8 @@ try:
 
     print("\n==================================================================")
     print(
-        f"[PASS] README / README.zh-CN command replay complete: "
-        f"total={len(en_cmds)}, executed_with_assertions={executed_count}, skipped_with_reasons={skipped_count}."
+        f"README_REPLAY_SUMMARY: total={len(en_cmds)} passed={passed_count} skipped={skipped_count} "
+        f"(skipped items NOT counted as passed; locale={active_lang})"
     )
     print("==================================================================")
 finally:

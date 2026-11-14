@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 7294,
+  "content_type": "application/json",
+  "raw_file": "crossref_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1.raw",
+  "requested_at": "2026-11-14T20:29:11Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:11 GMT",
+  "service": "crossref",
+  "sha256": "0bb29c6cd7a01ff2b486e80ce2b0ab9fd80eac75352c8489c1f223bca776fb7d",
+  "slug": "crossref_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1",
+  "status": 200,
+  "url": "https://api.crossref.org/works/10.1162/neco.1997.9.8.1735"
+}

@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 28903,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_Recursive_Causal_Lattices_for_Zero-Shot_Climate__1c12c1589a.raw",
+  "requested_at": "2026-11-14T20:29:43Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:44 GMT",
+  "service": "crossref",
+  "sha256": "bca0d13ecc95b5212dcdbd809166fc4a7f768810d1e0546a770fe642a89e7432",
+  "slug": "crossref_title_Recursive_Causal_Lattices_for_Zero-Shot_Climate__1c12c1589a",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=Recursive%20Causal%20Lattices%20for%20Zero-Shot%20Climate%20Forecasting&rows=3"
+}

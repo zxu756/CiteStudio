@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 33425,
+  "content_type": "application/json",
+  "raw_file": "openalex_doi_10.1016_j.fct.2012.08.005_289ea237f0.raw",
+  "requested_at": "2026-11-14T20:29:27Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:28 GMT",
+  "service": "openalex",
+  "sha256": "ca11706cf122f24caf1e806c9f2eea67c5bc369c0702e134d7c5f9810243a810",
+  "slug": "openalex_doi_10.1016_j.fct.2012.08.005_289ea237f0",
+  "status": 200,
+  "url": "https://api.openalex.org/works/https://doi.org/10.1016/j.fct.2012.08.005"
+}

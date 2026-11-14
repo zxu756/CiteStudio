@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 40565,
+  "content_type": "application/json",
+  "raw_file": "crossref_doi_10.1038_nature14539_2fbc9ecc14.raw",
+  "requested_at": "2026-11-14T20:29:06Z",
+  "response_date_header": "Sat, 14 Nov 2026 20:29:07 GMT",
+  "service": "crossref",
+  "sha256": "1e398c9591c4c10a368b0d7031e41a4a868c7c85fbde78d1d96e33223251c0f6",
+  "slug": "crossref_doi_10.1038_nature14539_2fbc9ecc14",
+  "status": 200,
+  "url": "https://api.crossref.org/works/10.1038/nature14539"
+}
