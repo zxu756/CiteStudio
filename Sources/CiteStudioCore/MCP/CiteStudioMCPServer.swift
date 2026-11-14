@@ -269,7 +269,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             ],
             [
                 "name": "search_local_pdfs",
-                "description": "BM25 full-text search across local reference PDFs indexed with PDFKit.",
+                "description": "BM25 search across pre-indexed PDF passages in pdf_fts5.sqlite (note: no CLI/MCP indexing tool is exposed yet; returns empty unless populated via LocalPDFIndexer).",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -281,7 +281,7 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
             ],
             [
                 "name": "get_claim_evidence",
-                "description": "Find the highest-BM25 PDF passage candidate for a manuscript sentence.",
+                "description": "Keyword BM25 lookup against pre-indexed PDF text blocks in pdf_fts5.sqlite (returns coarse block/page bounds without numeric or negation verification; requires pre-populated index).",
                 "inputSchema": [
                     "type": "object",
                     "properties": [

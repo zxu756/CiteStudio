@@ -62,7 +62,8 @@ final class LoopbackScholarServer: @unchecked Sendable {
     private let lock = NSLock()
     private var listenFD: Int32 = -1
     private var isStopped = false
-    private var _mode: Mode = .healthy
+    private var _crossrefMode: Mode = .healthy
+    private var _openAlexMode: Mode = .healthy
     private var _recordedPaths: [String] = []
 
     let port: UInt16
@@ -76,8 +77,23 @@ final class LoopbackScholarServer: @unchecked Sendable {
     }
 
     var mode: Mode {
-        get { lock.withLock { _mode } }
-        set { lock.withLock { _mode = newValue } }
+        get { lock.withLock { _crossrefMode } }
+        set {
+            lock.withLock {
+                _crossrefMode = newValue
+                _openAlexMode = newValue
+            }
+        }
+    }
+
+    var crossrefMode: Mode {
+        get { lock.withLock { _crossrefMode } }
+        set { lock.withLock { _crossrefMode = newValue } }
+    }
+
+    var openAlexMode: Mode {
+        get { lock.withLock { _openAlexMode } }
+        set { lock.withLock { _openAlexMode = newValue } }
     }
 
     var recordedPaths: [String] {
@@ -89,7 +105,8 @@ final class LoopbackScholarServer: @unchecked Sendable {
     }
 
     init(initialMode: Mode = .healthy) throws {
-        self._mode = initialMode
+        self._crossrefMode = initialMode
+        self._openAlexMode = initialMode
         let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: "LoopbackScholarServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "socket() failed"])
@@ -187,7 +204,10 @@ final class LoopbackScholarServer: @unchecked Sendable {
 
         let activeMode: Mode = lock.withLock {
             _recordedPaths.append(rawTarget)
-            return _mode
+            if rawTarget.lowercased().hasPrefix("/openalex") {
+                return _openAlexMode
+            }
+            return _crossrefMode
         }
 
         switch activeMode {
@@ -409,7 +429,23 @@ final class LoopbackScholarServer: @unchecked Sendable {
         "10.1038/171737a0": #"{"id":"https://openalex.org/W2054569362","doi":"https://doi.org/10.1038/171737a0","title":"Molecular Structure of Nucleic Acids: A Structure for Deoxyribose Nucleic Acid","publication_year":1953,"is_retracted":false}"#,
         "10.1016/j.fct.2012.08.005": #"{"id":"https://openalex.org/W2046181874","doi":"https://doi.org/10.1016/j.fct.2012.08.005","title":"Long term toxicity of a Roundup herbicide and a Roundup-tolerant genetically modified maize","publication_year":2012,"is_retracted":true}"#,
         "10.1016/s0140-6736(97)11096-0": #"{"id":"https://openalex.org/W2125826843","doi":"https://doi.org/10.1016/s0140-6736(97)11096-0","title":"RETRACTED: Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children","publication_year":1998,"is_retracted":true}"#,
-        "10.9999/test.openalex.retracted": #"{"id":"https://openalex.org/W9999999999","doi":"https://doi.org/10.9999/test.openalex.retracted","title":"Study Retracted Only in OpenAlex","publication_year":2021,"is_retracted":true}"#
+        "10.9999/test.openalex.retracted": #"{"id":"https://openalex.org/W9999999999","doi":"https://doi.org/10.9999/test.openalex.retracted","title":"Study Retracted Only in OpenAlex","publication_year":2021,"is_retracted":true}"#,
+        "10.48550/arxiv.1706.03762": #"""
+        {
+          "id": "https://openalex.org/W2963403868",
+          "doi": "https://doi.org/10.48550/arxiv.1706.03762",
+          "title": "Attention Is All You Need",
+          "publication_year": 2017,
+          "is_retracted": false,
+          "authorships": [
+            {"author": {"display_name": "Ashish Vaswani"}},
+            {"author": {"display_name": "Noam Shazeer"}}
+          ],
+          "primary_location": {
+            "source": {"display_name": "arXiv (Cornell University)", "type": "repository"}
+          }
+        }
+        """#
     ]
 
     private static let openAlexTitleSearchKnuth1969Review = #"""

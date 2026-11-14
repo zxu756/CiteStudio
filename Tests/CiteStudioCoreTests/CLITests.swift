@@ -178,4 +178,68 @@ struct CLITests {
         #expect(subVerify.code == 0)
         #expect(subVerify.stdout.contains("Verified=1"))
     }
+
+    @Test("C13 + C14: Single PreprintUpgrade exits 1 on --cli verify, default HTTP timeout is 8s, and README EN/ZH match code")
+    func c13AndC14VerifyExitCodeTimeoutAndDocConsistency() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_c13_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let server = try LoopbackScholarServer(initialMode: .healthy)
+        defer { server.stop() }
+        let cacheDir = tmp.appendingPathComponent("cache")
+        let env = [
+            "CITESTUDIO_CROSSREF_BASE_URL": server.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": server.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": cacheDir.path
+        ]
+
+        // 1. Single PreprintUpgrade entry (FlashAttention arXiv -> NeurIPS 2022) MUST exit 1 in both EN and ZH
+        let preprintBib = tmp.appendingPathComponent("preprint_only.bib")
+        try """
+        @article{dao2022flash, title = {FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness}, author = {Dao, Tri and Fu, Daniel Y.}, journal = {arXiv preprint arXiv:2205.14135}, year = {2022}}
+        """.write(to: preprintBib, atomically: true, encoding: .utf8)
+
+        let resEN = await CiteStudioCLI.run(arguments: ["CiteStudio", "--cli", "verify", preprintBib.path, "--lang", "en"], environment: env)
+        #expect(resEN.exitCode == 1)
+        #expect(resEN.stdout.contains("[PreprintUpgrade] dao2022flash"))
+        #expect(resEN.stdout.contains("PreprintUpgrade=1"))
+
+        let subZH = try Self.runSubprocessCLI(args: ["--cli", "verify", preprintBib.path, "--lang", "zh"], extraEnv: env)
+        #expect(subZH.code == 1)
+        #expect(subZH.stdout.contains("[PreprintUpgrade | 可升级正式版] dao2022flash"))
+        #expect(subZH.stdout.contains("可升级(PreprintUpgrade)=1"))
+
+        // 2. Default HTTP timeout in code is 8.0 seconds
+        let defaultTransport = PublicScholarHTTPTransport(environment: [:])
+        #expect(defaultTransport.timeoutInterval == 8.0)
+
+        // 3. Crossref updated-by recognizes retract/withdraw, NOT removal
+        let removalRecord = PublicScholarHTTPTransport.parseCrossrefMessage([
+            "DOI": "10.9999/removal.only",
+            "title": ["Notice With Removal Type Only"],
+            "author": [["given": "Jane", "family": "Doe"]],
+            "published-print": ["date-parts": [[2021, 1, 1]]],
+            "container-title": ["Test Venue"],
+            "updated-by": [["type": "removal", "label": "Removal"]]
+        ])
+        #expect(removalRecord?.isRetracted == false)
+
+        // 4. Verify README.md and README.zh-CN.md match actual code behavior (C13, C14, PDF coarse granularity & missing index entry)
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+
+        #expect(!readmeEN.contains("Exits 0 ONLY when all entries are Verified (or PreprintUpgrade)"))
+        #expect(!readmeZH.contains("仅当全部条目均为 Verified（或 PreprintUpgrade）时退出码为 0"))
+        #expect(!readmeEN.contains("defaults to `12`"))
+        #expect(!readmeZH.contains("默认 `12` 秒"))
+        #expect(!readmeEN.contains("`removal`"))
+        #expect(!readmeZH.contains("`removal`"))
+        #expect(readmeEN.contains("defaults to `8`"))
+        #expect(readmeZH.contains("默认 `8` 秒"))
+    }
 }

@@ -202,7 +202,7 @@ struct CiteStudioCoreTests {
         #expect((match?.boundingBox.width ?? 0) > 50)
     }
 
-    @Test("SyncTeXMapper bidirectionally maps source lines and PDF coordinates, and Tectonic compiles real PDF")
+    @Test("SyncTeXMapper bidirectionally maps .synctex / .synctex.gz fixtures, and real Tectonic compilation is gated on CITESTUDIO_REAL_TECTONIC=1")
     func syncTeXAndTectonicCompilation() throws {
         let sampleSyncTeX = """
         SyncTeX Version:1
@@ -223,22 +223,50 @@ struct CiteStudioCoreTests {
         let inv = mapper.inverseLookup(page: 1, point: CGPoint(x: 72, y: 400))
         #expect(inv?.line == 28)
 
-        if TectonicRunner.detectBinary() != nil {
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_tec_\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            let texURL = tmp.appendingPathComponent("hello.tex")
-            try """
-            \\documentclass{article}
-            \\begin{document}
-            Hello CiteStudio Tectonic SyncTeX Verification.
-            \\end{document}
-            """.write(to: texURL, atomically: true, encoding: .utf8)
+        // Also test SyncTeXMapper.load(from:) on a gzipped .synctex.gz file unconditionally (hermetic, zero network)
+        let tmpSync = FileManager.default.temporaryDirectory.appendingPathComponent("cs_synctex_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpSync, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpSync) }
+        let rawSyncURL = tmpSync.appendingPathComponent("main.synctex")
+        try sampleSyncTeX.write(to: rawSyncURL, atomically: true, encoding: .utf8)
+        let gzProc = Process()
+        gzProc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzProc.arguments = ["-f", rawSyncURL.path]
+        try gzProc.run()
+        gzProc.waitUntilExit()
+        #expect(gzProc.terminationStatus == 0)
+        let loadedMapper = try SyncTeXMapper.load(from: tmpSync.appendingPathComponent("main.synctex.gz"))
+        #expect(loadedMapper.forwardLookup(sourceFile: "main.tex", line: 28)?.line == 28)
 
-            let res = TectonicRunner.compile(texFile: texURL, outputDirectory: tmp)
-            #expect(res.succeeded)
-            #expect(res.pdfURL != nil)
-            #expect(res.synctexURL != nil)
+        // Unit-test TectonicRunner & TypstRunner diagnostic parsers unconditionally
+        let tecDiags = TectonicRunner.parseDiagnostics(log: "error: main.tex:14: Undefined control sequence", defaultFile: "main.tex")
+        #expect(tecDiags.count == 1)
+        #expect(tecDiags.first?.line == 14)
+
+        // Real tectonic compilation requires external bundle cache in $HOME/Library/Caches/TectonicProject.Tectonic
+        // (or network download from relay.fullyjustified.net when HOME is isolated); gate per General Rule §4 (C18).
+        if ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] == "1" {
+            if TectonicRunner.detectBinary() != nil {
+                let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_tec_\(UUID().uuidString)")
+                try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: tmp) }
+                let texURL = tmp.appendingPathComponent("hello.tex")
+                try """
+                \\documentclass{article}
+                \\begin{document}
+                Hello CiteStudio Tectonic SyncTeX Verification.
+                \\end{document}
+                """.write(to: texURL, atomically: true, encoding: .utf8)
+
+                let res = TectonicRunner.compile(texFile: texURL, outputDirectory: tmp)
+                #expect(res.succeeded)
+                #expect(res.pdfURL != nil)
+                #expect(res.synctexURL != nil)
+            } else {
+                print("SKIPPED: tectonic binary not installed (CITESTUDIO_REAL_TECTONIC=1)")
+            }
+        } else {
+            print("SKIPPED: real tectonic compilation (CITESTUDIO_REAL_TECTONIC!=1; external cache/network item, 已跳过)")
         }
     }
 
@@ -276,18 +304,22 @@ struct CiteStudioCoreTests {
         #expect(fwZH.count > 40_000)
     }
 
-    @Test("AppLocalizer resolves --lang CLI flag, UserDefaults persistence, Chinese locale auto-detection, and live toggle")
+    @Test("AppLocalizer resolves --lang CLI flag, preference persistence, Chinese locale auto-detection, and live toggle without touching ~/Library/Preferences")
     @MainActor
     func appLocalizerResolutionAndToggle() throws {
-        let suiteName = "CiteStudioLocalizerTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        final class InMemoryLanguagePreferenceStore: LanguagePreferenceStore {
+            var storage: [String: String] = [:]
+            func string(forKey defaultName: String) -> String? { storage[defaultName] }
+            func set(_ value: Any?, forKey defaultName: String) { storage[defaultName] = value as? String }
+        }
+
+        let store = InMemoryLanguagePreferenceStore()
         let key = "io.github.zxu756.CiteStudio.test.language"
 
-        // 1. Auto-detect Chinese system locale when no CLI flag or UserDefaults override exists
+        // 1. Auto-detect Chinese system locale when no CLI flag or stored preference override exists
         let zhAuto = AppLocalizer(
             arguments: ["CiteStudio"],
-            userDefaults: defaults,
+            preferenceStore: store,
             preferredLanguages: ["zh-Hans-CN", "en-US"],
             defaultsKey: key
         )
@@ -295,28 +327,28 @@ struct CiteStudioCoreTests {
         #expect(zhAuto.isChinese)
         #expect(zhAuto.L("Verify Citations", "核验引文") == "核验引文")
 
-        // 2. Live toggle persists to UserDefaults
+        // 2. Live toggle persists to preference store
         zhAuto.toggle()
         #expect(zhAuto.language == .en)
-        #expect(defaults.string(forKey: key) == "en")
+        #expect(store.string(forKey: key) == "en")
         zhAuto.toggle()
         #expect(zhAuto.language == .zhHans)
-        #expect(defaults.string(forKey: key) == "zh-Hans")
+        #expect(store.string(forKey: key) == "zh-Hans")
 
-        // 3. Stored UserDefaults wins over non-Chinese locale
-        defaults.set("zh-Hans", forKey: key)
+        // 3. Stored preference wins over non-Chinese locale
+        store.set("zh-Hans", forKey: key)
         let fromDefaults = AppLocalizer(
             arguments: ["CiteStudio"],
-            userDefaults: defaults,
+            preferenceStore: store,
             preferredLanguages: ["en-US"],
             defaultsKey: key
         )
         #expect(fromDefaults.language == .zhHans)
 
-        // 4. CLI --lang flag overrides UserDefaults and system locale
+        // 4. CLI --lang flag overrides stored preference and system locale
         let cliOverride = AppLocalizer(
             arguments: ["CiteStudio", "--lang", "en"],
-            userDefaults: defaults,
+            preferenceStore: store,
             preferredLanguages: ["zh-Hant-TW"],
             defaultsKey: key
         )
@@ -324,7 +356,7 @@ struct CiteStudioCoreTests {
 
         let cliZhOverride = AppLocalizer(
             arguments: ["CiteStudio", "--lang=zh"],
-            userDefaults: defaults,
+            preferenceStore: store,
             preferredLanguages: ["en-US"],
             defaultsKey: key
         )

@@ -274,7 +274,7 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         case .retracted:
             return "Crossref / OpenAlex 存在正式撤稿记录，严禁作为有效论据引用。"
         case .ghostPaper:
-            return "Crossref 明确返回 404，或两个数据源按标题均无相近记录；MCP 门禁返回 ERR_UNVERIFIED_CITATION。"
+            return "Crossref 与 OpenAlex 对该 DOI 均返回未找到，或两个数据源按标题均无相近记录；MCP 门禁返回 ERR_UNVERIFIED_CITATION。"
         case .unverified:
             return "联网请求未完成（断网、超时、限流或服务异常），本次未写入缓存。"
         case .orphanCite:

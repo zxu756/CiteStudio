@@ -40,9 +40,9 @@ public enum ScholarLookupFailureReason: Error, Sendable, Equatable, Codable {
     }
 }
 
-/// Three strictly separated verification lookup outcomes (M0 Item 1 / C1):
+/// Three strictly separated verification lookup outcomes (M0 Item 1 / C1 / C16):
 /// 1. `.found`: authoritative record retrieved from Crossref or OpenAlex;
-/// 2. `.confirmedNotFound`: Crossref returned HTTP 404 for the DOI, or both Crossref and OpenAlex title searches returned 200 with zero matches;
+/// 2. `.confirmedNotFound`: both Crossref and OpenAlex returned 404 for the DOI, or both Crossref and OpenAlex title searches returned 200 with zero matches;
 /// 3. `.lookupFailed`: offline, timeout, 429, 5xx, or parse error — NEVER cached and NEVER classified as GhostPaper.
 public enum ScholarLookupOutcome: Sendable, Equatable {
     case found(ScholarRecord)
@@ -111,8 +111,17 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
             case .failure(let reason):
                 return .lookupFailed(reason)
             case .success(.none):
-                // Crossref explicitly returned HTTP 404 for this DOI
-                return .confirmedNotFound
+                // Crossref returned HTTP 404 (common for DataCite / arXiv DOIs like 10.48550/...).
+                // Consult OpenAlex before concluding confirmedNotFound (C16).
+                switch await queryOpenAlexByDOI(doi) {
+                case .failure(let reason):
+                    return .lookupFailed(reason)
+                case .success(.some(let oaRecord)):
+                    return .found(oaRecord)
+                case .success(.none):
+                    // Both Crossref and OpenAlex explicitly returned not-found
+                    return .confirmedNotFound
+                }
             case .success(.some(let crossrefRecord)):
                 if crossrefRecord.isRetracted {
                     return .found(crossrefRecord)
@@ -233,6 +242,36 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         }
     }
 
+    private func queryOpenAlexByDOI(_ doi: String) async -> Result<ScholarRecord?, ScholarLookupFailureReason> {
+        let encoded = Self.encodeDOIForPath(doi)
+        guard let url = Self.appendPath(openAlexBaseURL, suffix: "/works/https://doi.org/\(encoded)") else {
+            return .failure(.invalidResponse("Invalid OpenAlex DOI URL"))
+        }
+        switch await performJSONRequest(makeRequest(url: url)) {
+        case .failure(let reason):
+            return .failure(reason)
+        case .success((404, _)):
+            return .success(nil)
+        case .success((_, let root)):
+            guard let root else {
+                return .failure(.invalidResponse("Empty OpenAlex payload"))
+            }
+            if let results = root["results"] as? [[String: Any]] {
+                if results.isEmpty {
+                    return .success(nil)
+                }
+                if let first = results.first, let rec = Self.parseOpenAlexWork(first) {
+                    return .success(rec)
+                }
+                return .failure(.invalidResponse("Missing OpenAlex work fields"))
+            }
+            if let rec = Self.parseOpenAlexWork(root) {
+                return .success(rec)
+            }
+            return .failure(.invalidResponse("Missing OpenAlex work fields"))
+        }
+    }
+
     private func queryOpenAlexRetractionByDOI(_ doi: String) async -> Result<Bool, ScholarLookupFailureReason> {
         let encoded = Self.encodeDOIForPath(doi)
         guard let url = Self.appendPath(openAlexBaseURL, suffix: "/works/https://doi.org/\(encoded)") else {
@@ -319,52 +358,71 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
                 return .failure(.invalidResponse("Missing OpenAlex results array"))
             }
             for work in results {
-                guard let rawTitle = work["title"] as? String else { continue }
-                let foundTitle = Self.sanitizeUpstreamText(rawTitle)
-                guard !foundTitle.isEmpty,
-                      ScholarTriangulator.normalizedTitleSimilarity(title, foundTitle) >= 0.78 else {
+                guard let record = Self.parseOpenAlexWork(work),
+                      ScholarTriangulator.normalizedTitleSimilarity(title, record.title) >= 0.78 else {
                     continue
                 }
-                let year = (work["publication_year"] as? Int) ?? 0
-                let isRetracted = ((work["is_retracted"] as? Bool) ?? false) || Self.hasRetractedTitlePrefix(foundTitle)
-                let doiRaw = work["doi"] as? String
-                let doi = BibTeXParser.normalizeDOI(doiRaw)
-
-                var authors: [String] = []
-                if let auths = work["authorships"] as? [[String: Any]] {
-                    for a in auths {
-                        if let authorObj = a["author"] as? [String: Any],
-                           let name = authorObj["display_name"] as? String {
-                            authors.append(name)
-                        }
-                    }
-                }
-
-                var venue = "OpenAlex Indexed Venue"
-                if let loc = work["primary_location"] as? [String: Any],
-                   let src = loc["source"] as? [String: Any],
-                   let dname = src["display_name"] as? String {
-                    venue = Self.sanitizeUpstreamText(dname)
-                }
-
-                let isVenuePeerReviewed = !venue.lowercased().contains("arxiv")
-                return .success(
-                    ScholarRecord(
-                        source: "OpenAlex",
-                        title: foundTitle,
-                        authors: authors,
-                        year: year,
-                        venue: venue,
-                        doi: doi,
-                        isRetracted: isRetracted,
-                        publishedUpgradeVenue: isVenuePeerReviewed ? venue : nil,
-                        publishedUpgradeDOI: isVenuePeerReviewed ? doi : nil,
-                        publishedUpgradeYear: isVenuePeerReviewed ? year : nil
-                    )
-                )
+                return .success(record)
             }
             return .success(nil)
         }
+    }
+
+    public static func parseOpenAlexWork(_ work: [String: Any]) -> ScholarRecord? {
+        let rawTitle = (work["title"] as? String) ?? (work["display_name"] as? String)
+        guard let rawTitle else { return nil }
+        let foundTitle = sanitizeUpstreamText(rawTitle)
+        guard !foundTitle.isEmpty else { return nil }
+
+        let year = (work["publication_year"] as? Int) ?? 0
+        let isRetracted = ((work["is_retracted"] as? Bool) ?? false) || hasRetractedTitlePrefix(foundTitle)
+        let doi = BibTeXParser.normalizeDOI(work["doi"] as? String)
+
+        var authors: [String] = []
+        if let auths = work["authorships"] as? [[String: Any]] {
+            for a in auths {
+                if let authorObj = a["author"] as? [String: Any],
+                   let name = authorObj["display_name"] as? String, !name.isEmpty {
+                    authors.append(name)
+                } else if let rawName = a["raw_author_name"] as? String, !rawName.isEmpty {
+                    authors.append(rawName)
+                }
+            }
+        }
+
+        let primarySource = (work["primary_location"] as? [String: Any])?["source"] as? [String: Any]
+        let hostVenue = work["host_venue"] as? [String: Any]
+        let rawVenueName = (primarySource?["display_name"] as? String) ?? (hostVenue?["display_name"] as? String)
+        let sourceType = ((primarySource?["type"] as? String) ?? (hostVenue?["type"] as? String))?.lowercased()
+
+        let venue: String
+        let isVenuePeerReviewed: Bool
+        if let rawVenueName, !sanitizeUpstreamText(rawVenueName).isEmpty {
+            venue = sanitizeUpstreamText(rawVenueName)
+            let vLower = venue.lowercased()
+            let isPreprintRepo = vLower.contains("arxiv")
+                || vLower.contains("biorxiv")
+                || vLower.contains("medrxiv")
+                || vLower.contains("zenodo")
+                || sourceType == "repository"
+            isVenuePeerReviewed = !isPreprintRepo
+        } else {
+            venue = (doi?.hasPrefix("10.48550/arxiv.") == true) ? "arXiv" : "OpenAlex"
+            isVenuePeerReviewed = false
+        }
+
+        return ScholarRecord(
+            source: "OpenAlex",
+            title: foundTitle,
+            authors: authors,
+            year: year,
+            venue: venue,
+            doi: doi,
+            isRetracted: isRetracted,
+            publishedUpgradeVenue: isVenuePeerReviewed ? venue : nil,
+            publishedUpgradeDOI: isVenuePeerReviewed ? doi : nil,
+            publishedUpgradeYear: isVenuePeerReviewed ? year : nil
+        )
     }
 
     public static func parseCrossrefMessage(_ msg: [String: Any]) -> ScholarRecord? {

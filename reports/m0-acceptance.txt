@@ -1,55 +1,52 @@
 ==================================================================
 CiteStudio M0 Acceptance Verification (m0-acceptance.sh)
-Timestamp (UTC): 2026-11-14T04:38:42Z
-Commit / Branch: m0/honest @ 36c815f
-Network Policy : Local 127.0.0.1 loopback server ONLY (0 external API calls)
+Timestamp (UTC): 2026-11-14T08:39:53Z
+Commit / Branch: m0/honest @ 69a4217
+Network Policy : Local 127.0.0.1 loopback ONLY (0 external API calls; 0 GUI windows)
 ==================================================================
-[INFO] Verified byte-for-byte match with flagship-acceptance test.bib (12 entries).
-[INFO] Local loopback Scholar fixture server listening at http://127.0.0.1:56487
+[INFO] Local loopback replay/fault server listening at http://127.0.0.1:63775 (recorded_fixtures=0)
 
---- Row 1: Offline -> Unverified (0 cached), then Online -> Re-queries & Verifies ---
-[PASS] Row 1: Offline returned 12/12 Unverified (未验证) with 0 cached rows; Online sent 15 fresh requests and verified all 3 real papers.
+--- Row 1: Offline -> Unverified (0 cached); Online Recorded Replay -> Re-queries ---
+[PASS] Row 1a (Offline): 12/12 Unverified ([Unverified | 未验证]), 0 GhostPaper, 0 SQLite cache rows (exit=1).
+[Row 1b - Online Replay] SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval
 
---- Row 2: Upstream HTTP 429 / HTTP 500 / Timeout -> Unverified (0 cached) ---
-  [ok] Fault=429 -> Unverified / [未验证], exit=1, cache_rows=0
-  [ok] Fault=500 -> Unverified / [未验证], exit=1, cache_rows=0
-  [ok] Fault=timeout -> Unverified / [未验证], exit=1, cache_rows=0
-[PASS] Row 2: HTTP 429, HTTP 500, and timeout all classified as Unverified with 0 negative-cache entries.
+--- Row 2: Upstream HTTP 429 / HTTP 500 / Malformed JSON / Timeout -> Unverified (0 cached) ---
+  [ok] Fault=429 -> Unverified / [Unverified | 未验证], exit=1, cache_rows=0
+  [ok] Fault=500 -> Unverified / [Unverified | 未验证], exit=1, cache_rows=0
+  [ok] Fault=malformed_json -> Unverified / [Unverified | 未验证], exit=1, cache_rows=0
+  [ok] Fault=timeout -> Unverified / [Unverified | 未验证], exit=1, cache_rows=0
+[PASS] Row 2: HTTP 429, HTTP 500, malformed JSON, and timeout all classified as Unverified with 0 negative-cache entries.
 
---- Row 3: Real DOI + Wrong Title -> MetadataMismatch & MCP Gate Rejection ---
-[PASS] Row 3: Real DOI with wrong title flagged as MetadataMismatch; add_verified_bibtex rejected with ERR_UNVERIFIED_CITATION (SHA-256 unchanged).
+--- Row 3: Real DOI + Wrong Title (Recorded Replay) -> MetadataMismatch & MCP Gate Rejection ---
+[Row 3] SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval
 
---- Row 4: Wakefield 1998 & Séralini 2012 -> Both Retracted ---
-[PASS] Row 4: Both Wakefield 1998 and Séralini 2012 classified as Retracted ([已撤稿]).
+--- Row 4: Wakefield 1998 & Séralini 2012 (Recorded Replay) -> Retracted ---
+[Row 4] SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval
 
---- Row 5: add_verified_bibtex Writes Canonical Upstream Metadata & Deduplicates ---
-[PASS] Row 5: add_verified_bibtex wrote canonical upstream 'title = {Deep learning}' and skipped duplicate citeKey.
+--- Row 5: add_verified_bibtex Canonical Upstream Metadata & Deduplication (Recorded Replay) ---
+[Row 5] SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval
 
 --- Row 6: Missing File & Invalid CLI Arguments Return Non-Zero Exit Code ---
 [PASS] Row 6: --cli lint /nonexistent.tex exited 2 (EN) / 2 (ZH) with clear file-not-found stderr message.
 
---- Row 7: GUI Without --demo Starts Empty (0 Manuscript, 0 Bib, 0 Diagnostics) ---
-  [ok] GUI default launch (--lang en) -> {"bibEntries":0,"diagnostics":0,"isDemoMode":false,"language":"en","lintFindings":0,"manuscriptChars":0}
-  [ok] GUI default launch (--lang zh) -> {"bibEntries":0,"diagnostics":0,"isDemoMode":false,"language":"zh-Hans","lintFindings":0,"manuscriptChars":0}
-[PASS] Row 7: Desktop GUI without --demo launched with 0 manuscript chars, 0 bib entries, 0 diagnostics in both EN and ZH.
+--- Row 7 (C19 Headless): Default Workspace Starts Empty Without Launching GUI ---
+[PASS] Row 7 (C19): Verified default empty workspace (0 manuscript, 0 bib, 0 diagnostics, isDemoMode=false) headlessly via WorkspaceTests (0 GUI processes launched).
 
---- Row 8: Full 12-Entry test.bib Matrix via CLI verify & MCP verify_citation ---
-  real_lecun             -> CLI=Verified         | MCP=Verified        
-  real_lstm              -> CLI=Verified         | MCP=Verified        
-  real_watson            -> CLI=Verified         | MCP=Verified        
-  fake_nonsentinel       -> CLI=GhostPaper       | MCP=GhostPaper      
-  fake_sentinel          -> CLI=GhostPaper       | MCP=GhostPaper      
-  wrongtitle             -> CLI=MetadataMismatch | MCP=MetadataMismatch
-  wrongyear              -> CLI=MetadataMismatch | MCP=MetadataMismatch
-  wrongyear5             -> CLI=MetadataMismatch | MCP=MetadataMismatch
-  real_nodoi             -> CLI=MetadataMismatch | MCP=MetadataMismatch (expected M0 C5 limitation -> M1)
-  fake_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
-  retracted_seralini     -> CLI=Retracted        | MCP=Retracted       
-  retracted_wakefield    -> CLI=Retracted        | MCP=Retracted       
-  clear-cache (EN): Cleared 9 cached citation verification entries (/var/folders/d5/4h6nzhm94l91870kmn7p8q040000gn/T//citestudio-m0-acc.6fyZf6/row8_cache/scholar_cache.sqlite).
-  clear-cache (ZH): 已清空 0 条引文核查缓存记录（/var/folders/d5/4h6nzhm94l91870kmn7p8q040000gn/T//citestudio-m0-acc.6fyZf6/row8_cache/scholar_cache.sqlite）。
-[PASS] Row 8: CLI verify and MCP verify_citation share identical verdicts across all 12 entries (11/12 ground-truth + C5 real_nodoi documented for M1).
+--- Row 8 + C16: 12-Entry test.bib & 10.48550/arXiv.1706.03762 via Recorded Replay ---
+[Row 8 & C16 Recorded Replay] SKIPPED (没跑): Tests/Fixtures/recorded/ has no recorded fixtures yet; run CITESTUDIO_RECORD=1 ./Scripts/acceptance/record-fixtures.sh after user approval
+
+--- Supplemental C13 & C14: Single PreprintUpgrade Exit Code & README Consistency ---
+[PASS] Supplemental C13/C14: 1 PreprintUpgrade entry exits 1 on --cli verify (matching README.md & README.zh-CN.md), timeout=8.0s.
+
+--- Supplemental W1: Scripted Mutation Verification (6 Named Test Guards) ---
+  [ok] M1_C1_NegativeCache: compiled cleanly -> failed named test 'FirewallTests/c1OfflineLookupDoesNotPoisonCache' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M2_C16_Crossref404Only: compiled cleanly -> failed named test 'FirewallTests/c16Crossref404ConsultsOpenAlexBeforeGhostPaper' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M3_C2_DisableTitleSimilarity: compiled cleanly -> failed named test 'FirewallTests/c2RealDOIWithWrongTitleIsMetadataMismatch' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/CitationDiagnostics.swift
+  [ok] M4_C3_DisableRetractionGate: compiled cleanly -> failed named test 'FirewallTests/c3RetractionDetectionAcrossAllChannels' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/CitationDiagnostics.swift
+  [ok] M5_C4_WriteRawCallerBibTeX: compiled cleanly -> failed named test 'MCPTests/c4AddVerifiedBibTeXWritesCanonicalUpstreamRecordAndSkipsDuplicateKey' (exit=1) -> restored Sources/CiteStudioCore/MCP/CiteStudioMCPServer.swift
+  [ok] M6_C8_NonEmptyDefaultWorkspace: compiled cleanly -> failed named test 'WorkspaceTests/c8DefaultSessionIsEmptyAndLoadDemoMarksDemoMode' (exit=1) -> restored Sources/CiteStudioCore/ViewModels/CiteStudioWorkspaceSession.swift
+[PASS] Supplemental W1: All 6 scripted mutations failed their exact named @Test after clean build, and working tree was restored cleanly.
 
 ==================================================================
-ALL 8 M0 ACCEPTANCE ROWS PASSED (EN + ZH, ZERO EXTERNAL API CALLS)
+SUMMARY: Offline/fault/CLI/headless/C13/W1 checks PASSED; recorded-fixture replay rows (1b, 3, 4, 5, 8, live C16) SKIPPED (没跑 — awaiting user approval for CITESTUDIO_RECORD=1).
 ==================================================================

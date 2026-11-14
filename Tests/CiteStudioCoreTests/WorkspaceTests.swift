@@ -38,5 +38,13 @@ struct WorkspaceTests {
         #expect(session.bibEntries.isEmpty)
         #expect(session.diagnostics.isEmpty)
         #expect(session.lintFindings.isEmpty)
+
+        // Bilingual status labels work headlessly without launching AppKit windows or touching UserDefaults (C19)
+        let enLoc = AppLocalizer(language: .en)
+        let zhLoc = AppLocalizer(language: .zhHans)
+        #expect(enLoc.L("No bibliography entries loaded.", "尚未载入参考文献条目。") == "No bibliography entries loaded.")
+        #expect(zhLoc.L("No bibliography entries loaded.", "尚未载入参考文献条目。") == "尚未载入参考文献条目。")
+        #expect(!session.localizedCompilerStatus(in: .en).isEmpty)
+        #expect(!session.localizedCompilerStatus(in: .zhHans).isEmpty)
     }
 }

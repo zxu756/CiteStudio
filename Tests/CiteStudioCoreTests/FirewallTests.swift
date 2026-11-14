@@ -306,4 +306,69 @@ struct FirewallTests {
             #expect(diag.kind == expected[entry.citeKey], "Mismatch on \(entry.citeKey): got \(diag.kind)")
         }
     }
+
+    @Test("C16: Crossref 404 on DataCite DOI consults OpenAlex (200 -> Verified/Mismatch; 503/429 -> Unverified uncached; both 404 -> GhostPaper)")
+    func c16Crossref404ConsultsOpenAlexBeforeGhostPaper() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c16_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let server = try LoopbackScholarServer(initialMode: .healthy)
+        defer { server.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: server.crossrefBaseURL,
+            openAlexBaseURL: server.openAlexBaseURL,
+            timeoutInterval: 1.0
+        )
+
+        let arxivEntry = try #require(BibTeXParser.parseBibTeX("""
+        @article{vaswani2017arxiv, author = {Vaswani, Ashish and Shazeer, Noam}, title = {Attention Is All You Need}, journal = {arXiv preprint arXiv:1706.03762}, year = {2017}, doi = {10.48550/arXiv.1706.03762}}
+        """).first)
+
+        // 1. Crossref 404 + OpenAlex 503 -> MUST be Unverified (未验证) and MUST NOT cache as GhostPaper!
+        server.crossrefMode = .healthy
+        server.openAlexMode = .httpStatus(503)
+        let failTriangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("c16_503.sqlite"),
+            transport: transport
+        )
+        let d503 = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: arxivEntry, triangulator: failTriangulator)
+        #expect(d503.kind == .unverified)
+        #expect(d503.kind.badgeLabel(in: .zhHans) == "未验证")
+        #expect(failTriangulator.rawCacheRowCount() == 0)
+
+        server.openAlexMode = .httpStatus(429)
+        let d429 = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: arxivEntry, triangulator: failTriangulator)
+        #expect(d429.kind == .unverified)
+        #expect(failTriangulator.rawCacheRowCount() == 0)
+
+        // 2. Crossref 404 + OpenAlex 200 matching Attention Is All You Need -> MUST NOT be GhostPaper!
+        server.openAlexMode = .healthy
+        let dHit = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: arxivEntry, triangulator: failTriangulator)
+        #expect(dHit.kind != .ghostPaper)
+        #expect(dHit.kind == .verified)
+        #expect(failTriangulator.rawCacheRowCount() == 1)
+
+        // Crossref 404 + OpenAlex 200 with mismatched title -> MetadataMismatch
+        let wrongTitleArxiv = try #require(BibTeXParser.parseBibTeX("""
+        @article{vaswani_wrong, author = {Vaswani, Ashish}, title = {Unrelated Study on Marine Biology}, journal = {arXiv}, year = {2017}, doi = {10.48550/arXiv.1706.03762}}
+        """).first)
+        let mismatchTriangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("c16_mismatch.sqlite"),
+            transport: transport
+        )
+        let dMismatch = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: wrongTitleArxiv, triangulator: mismatchTriangulator)
+        #expect(dMismatch.kind == .metadataMismatch)
+
+        // 3. Crossref 404 + OpenAlex 404 -> GhostPaper
+        let bothMissing = try #require(BibTeXParser.parseBibTeX("""
+        @article{both_404, author = {Nobody, X.}, title = {Completely Nonexistent DOI}, journal = {arXiv}, year = {2026}, doi = {10.48550/arXiv.9999.99999}}
+        """).first)
+        let ghostTriangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("c16_ghost.sqlite"),
+            transport: transport
+        )
+        let dGhost = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: bothMissing, triangulator: ghostTriangulator)
+        #expect(dGhost.kind == .ghostPaper)
+        #expect(ghostTriangulator.rawCacheRowCount() == 1)
+    }
 }

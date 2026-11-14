@@ -46,25 +46,6 @@ public struct StudioThreePaneView: View {
         .background(CiteStudioTheme.vellumPage)
         .foregroundStyle(CiteStudioTheme.carbonInk)
         .preferredColorScheme(.light)
-        .onAppear {
-            Self.emitUIStateSnapshotIfRequested(session: session, language: localizer.language)
-        }
-    }
-
-    private static func emitUIStateSnapshotIfRequested(session: CiteStudioWorkspaceSession, language: AppLanguage) {
-        guard let outPath = ProcessInfo.processInfo.environment["CITESTUDIO_UI_STATE_FILE"],
-              !outPath.isEmpty else { return }
-        let payload: [String: Any] = [
-            "language": language.rawValue,
-            "isDemoMode": session.isDemoMode,
-            "manuscriptChars": session.manuscriptText.count,
-            "bibEntries": session.bibEntries.count,
-            "diagnostics": session.diagnostics.count,
-            "lintFindings": session.lintFindings.count
-        ]
-        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
-            try? data.write(to: URL(fileURLWithPath: outPath), options: .atomic)
-        }
     }
 
     // MARK: - Header & Status Strip
