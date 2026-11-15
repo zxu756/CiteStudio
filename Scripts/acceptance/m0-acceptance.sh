@@ -695,7 +695,7 @@ PYEOF
     python3 - "${C13_OUT}" <<'PYEOF'
 import sys
 out = sys.argv[1]
-assert "✔ Test \"C13 + C14:" in out, out
+assert "✔ Test \"合成 (Synthetic HTTP) C13 + C14:" in out, out
 PYEOF
     echo "[PASS] Supplemental C13/C14: 1 PreprintUpgrade entry exits 1 on --cli verify (matching README.md & README.zh-CN.md), timeout=8.0s."
     ACC_PASSED=$((ACC_PASSED + 1))
