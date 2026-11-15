@@ -80,6 +80,9 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
                 "detail": diag.localizedDetail(in: language),
                 "upgradedBibTeX": diag.upgradedBibTeX as Any
             ]
+            if let reason = diag.notFoundReason {
+                payload["notFoundReason"] = reason.rawValue
+            }
             if let rec = diag.matchedRecord {
                 payload["matchedVenue"] = rec.venue
                 payload["matchedWorkType"] = rec.displayWorkType(in: language)
@@ -99,16 +102,20 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
 
             let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
             guard !diag.kind.isBlockingForMCP, let authoritativeRecord = diag.matchedRecord else {
+                var errPayload: [String: Any] = [
+                    "error_code": "ERR_UNVERIFIED_CITATION",
+                    "cite_key": entry.citeKey,
+                    "verdict": diag.kind.rawValue,
+                    "reason": diag.localizedDetail(in: language),
+                    "action": "Write rejected before touching \(URL(fileURLWithPath: bibPath).lastPathComponent)."
+                ]
+                if let reason = diag.notFoundReason {
+                    errPayload["notFoundReason"] = reason.rawValue
+                }
                 return encodeToolJSON(
                     id: id,
                     isError: true,
-                    payload: [
-                        "error_code": "ERR_UNVERIFIED_CITATION",
-                        "cite_key": entry.citeKey,
-                        "verdict": diag.kind.rawValue,
-                        "reason": diag.localizedDetail(in: language),
-                        "action": "Write rejected before touching \(URL(fileURLWithPath: bibPath).lastPathComponent)."
-                    ]
+                    payload: errPayload
                 )
             }
 

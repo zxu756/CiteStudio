@@ -34,6 +34,7 @@ public enum CitationDiagnosticsEngine {
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .ghostPaper,
+                    notFoundReason: .doiNotFoundInCrossrefAndOpenAlex,
                     headline: "Confirmed not found (\(entry.citeKey))",
                     detail: "Neither Crossref nor OpenAlex found this DOI. Blocked by Citation Firewall.",
                     headlineZh: "确认不存在 (\(entry.citeKey))",
@@ -47,6 +48,7 @@ public enum CitationDiagnosticsEngine {
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .ghostPaper,
+                    notFoundReason: .noDOINotFoundInCrossrefOrOpenAlex,
                     headline: "Not found in Crossref / OpenAlex (\(entry.citeKey))",
                     detail: "No Crossref or OpenAlex title-search candidate matched title (>= 0.78), first-author surname, and year (±1). Older books, theses, or reports without a DOI may not be indexed; blocked by Citation Firewall.",
                     headlineZh: "未在 Crossref / OpenAlex 中查到匹配记录 (\(entry.citeKey))",

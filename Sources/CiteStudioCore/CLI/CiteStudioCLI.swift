@@ -224,6 +224,9 @@ public enum CiteStudioCLI {
                         "headline": d.localizedHeadline(in: lang),
                         "detail": d.localizedDetail(in: lang)
                     ]
+                    if let reason = d.notFoundReason {
+                        item["notFoundReason"] = reason.rawValue
+                    }
                     if let rec = d.matchedRecord {
                         item["matchedVenue"] = rec.venue
                         item["matchedWorkType"] = rec.displayWorkType(in: lang)

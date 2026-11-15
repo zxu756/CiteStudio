@@ -203,10 +203,16 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
     }
 }
 
+public enum CitationNotFoundReason: String, Sendable, Equatable, Codable {
+    case doiNotFoundInCrossrefAndOpenAlex = "doi_not_found_in_crossref_and_openalex"
+    case noDOINotFoundInCrossrefOrOpenAlex = "no_doi_not_found_in_crossref_or_openalex"
+}
+
 public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
     public let id: String
     public let citeKey: String
     public let kind: FirewallVerdictKind
+    public let notFoundReason: CitationNotFoundReason?
     public let headline: String
     public let detail: String
     public let headlineZh: String?
@@ -219,6 +225,7 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
     public init(
         citeKey: String,
         kind: FirewallVerdictKind,
+        notFoundReason: CitationNotFoundReason? = nil,
         headline: String,
         detail: String,
         headlineZh: String? = nil,
@@ -231,6 +238,7 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         self.id = "\(citeKey)-\(kind.rawValue)"
         self.citeKey = citeKey
         self.kind = kind
+        self.notFoundReason = notFoundReason
         self.headline = headline
         self.detail = detail
         self.headlineZh = headlineZh

@@ -593,4 +593,105 @@ struct CLITests {
         #expect(m1Script.contains("不算 C5 的证据"))
         #expect(m1Script.contains("[INFO · 合成"))
     }
+
+    @Test("CR5: --cli verify --json and MCP (verify_citation & add_verified_bibtex) keep verdict=GhostPaper and expose structured notFoundReason distinguishing DOI-less title-search miss from explicit DOI 404")
+    func cr5JSONAndMCPDistinguishNoDOINotFoundFromExplicitDOI404() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr5_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let testBibPath = repoRoot.appendingPathComponent("Tests/Fixtures/test.bib").path
+
+        let env = [
+            "CITESTUDIO_CROSSREF_BASE_URL": replay.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": replay.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cli_cache").path
+        ]
+        let cliRes = await CiteStudioCLI.run(
+            arguments: ["CiteStudio", "--cli", "verify", testBibPath, "--json", "--lang", "en"],
+            environment: env
+        )
+        #expect(cliRes.exitCode == 1)
+        let rootObj = try #require(try JSONSerialization.jsonObject(with: Data(cliRes.stdout.utf8)) as? [String: Any])
+        let entries = try #require(rootObj["entries"] as? [[String: Any]])
+        var byKey: [String: [String: Any]] = [:]
+        for item in entries {
+            if let k = item["citeKey"] as? String { byKey[k] = item }
+        }
+
+        // Enum value "GhostPaper" remains unchanged on all confirmed-not-found entries
+        #expect(byKey["real_nodoi"]?["verdict"] as? String == "GhostPaper")
+        #expect(byKey["fake_nodoi"]?["verdict"] as? String == "GhostPaper")
+        #expect(byKey["fake_nonsentinel"]?["verdict"] as? String == "GhostPaper")
+        #expect(byKey["fake_sentinel"]?["verdict"] as? String == "GhostPaper")
+
+        // Structured field distinguishes "not found in Crossref/OpenAlex title search (no DOI)" from "DOI 404 in both Crossref and OpenAlex"
+        #expect(byKey["real_nodoi"]?["notFoundReason"] as? String == "no_doi_not_found_in_crossref_or_openalex")
+        #expect(byKey["fake_nodoi"]?["notFoundReason"] as? String == "no_doi_not_found_in_crossref_or_openalex")
+        #expect(byKey["fake_nonsentinel"]?["notFoundReason"] as? String == "doi_not_found_in_crossref_and_openalex")
+        #expect(byKey["fake_sentinel"]?["notFoundReason"] as? String == "doi_not_found_in_crossref_and_openalex")
+
+        // Non-GhostPaper entries do not set notFoundReason
+        #expect(byKey["real_lecun"]?["notFoundReason"] == nil)
+        #expect(byKey["wrongtitle"]?["notFoundReason"] == nil)
+        #expect(byKey["retracted_seralini"]?["notFoundReason"] == nil)
+
+        // MCP verify_citation and add_verified_bibtex also emit notFoundReason while keeping verdict == "GhostPaper"
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("mcp_cache.sqlite"),
+            transport: transport
+        )
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer, language: .en)
+        let outBib = tmp.appendingPathComponent("out.bib")
+        try "".write(to: outBib, atomically: true, encoding: .utf8)
+
+        func callMCPTool(id: Int, name: String, arguments: [String: Any]) async throws -> [String: Any] {
+            let req: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": ["name": name, "arguments": arguments]
+            ]
+            let raw = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: req), encoding: .utf8)!))
+            let rpc = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+            let content = try #require((rpc["result"] as? [String: Any])?["content"] as? [[String: Any]])
+            let text = try #require(content.first?["text"] as? String)
+            return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        }
+
+        let knuthStanza = "@book{real_nodoi, author = {Knuth, Donald E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, publisher = {Addison-Wesley}, year = {1968}}"
+        let fakeDOIStanza = "@article{fake_nonsentinel, author = {Whitfield, Eleanor and Patel, Raj}, title = {Quantum Gradient Descent in Biological Neural Networks}, journal = {Nature Machine Intelligence}, year = {2026}, doi = {10.1038/fake.2026.99999}}"
+
+        let mcpVerifyKnuth = try await callMCPTool(id: 1, name: "verify_citation", arguments: ["bibtex": knuthStanza])
+        #expect(mcpVerifyKnuth["verdict"] as? String == "GhostPaper")
+        #expect(mcpVerifyKnuth["notFoundReason"] as? String == "no_doi_not_found_in_crossref_or_openalex")
+
+        let mcpVerifyFakeDOI = try await callMCPTool(id: 2, name: "verify_citation", arguments: ["bibtex": fakeDOIStanza])
+        #expect(mcpVerifyFakeDOI["verdict"] as? String == "GhostPaper")
+        #expect(mcpVerifyFakeDOI["notFoundReason"] as? String == "doi_not_found_in_crossref_and_openalex")
+
+        let mcpAddKnuth = try await callMCPTool(id: 3, name: "add_verified_bibtex", arguments: ["bib_file": outBib.path, "bibtex": knuthStanza])
+        #expect(mcpAddKnuth["error_code"] as? String == "ERR_UNVERIFIED_CITATION")
+        #expect(mcpAddKnuth["verdict"] as? String == "GhostPaper")
+        #expect(mcpAddKnuth["notFoundReason"] as? String == "no_doi_not_found_in_crossref_or_openalex")
+
+        let mcpAddFakeDOI = try await callMCPTool(id: 4, name: "add_verified_bibtex", arguments: ["bib_file": outBib.path, "bibtex": fakeDOIStanza])
+        #expect(mcpAddFakeDOI["error_code"] as? String == "ERR_UNVERIFIED_CITATION")
+        #expect(mcpAddFakeDOI["verdict"] as? String == "GhostPaper")
+        #expect(mcpAddFakeDOI["notFoundReason"] as? String == "doi_not_found_in_crossref_and_openalex")
+        #expect(try String(contentsOf: outBib, encoding: .utf8).isEmpty)
+    }
 }

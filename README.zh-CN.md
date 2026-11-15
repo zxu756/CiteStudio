@@ -41,7 +41,7 @@
    - **撤稿识别（`Retracted`）**：检查 Crossref `update-to` 与 `updated-by` 中 `type` 或 `label` 含 `retract` 或 `withdraw` 的记录、Crossref `relation.is-retracted-by`、标题 `"RETRACTED:"` / `"WITHDRAWN:"` 前缀，以及 OpenAlex `is_retracted == true`。
    - **预印本转正提示（`PreprintUpgrade`）**：当文稿引用 `arXiv` / `bioRxiv` / `medRxiv` 预印本且上游检出同行评审正式版时，给出正式版 BibTeX 替换建议。
 2. **确认不存在 / 库中未查到（`GhostPaper`）**：
-   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或在无 DOI 条目的前 3 条标题检索均正常返回 HTTP `200` 且没有任何候选同时满足标题归一化相似度（`>= 0.78`）、发表年份差（`|Δyear| <= 1`）、第一作者姓氏一致及非书评类型（`book-review`）时（`C5`），才归入 **`GhostPaper`（`NOT FOUND`）**。对无 DOI 条目，诊断标题明确标注为“未在 Crossref / OpenAlex 中查到匹配记录”，不宣称文献系编造。
+   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或在无 DOI 条目的前 3 条标题检索均正常返回 HTTP `200` 且没有任何候选同时满足标题归一化相似度（`>= 0.78`）、发表年份差（`|Δyear| <= 1`）、第一作者姓氏一致及非书评类型（`book-review`）时（`C5`），才归入 **`GhostPaper`（`NOT FOUND`）**。对无 DOI 条目，诊断标题明确标注为“未在 Crossref / OpenAlex 中查到匹配记录”，不宣称文献系编造；在 `--cli verify --json` 与 MCP（`verify_citation` 及 `add_verified_bibtex` 拦截返回）中，枚举值 `verdict` 仍保持 `"GhostPaper"`，同时提供结构化字段 `notFoundReason` 区分 `"no_doi_not_found_in_crossref_or_openalex"`（无 DOI 标题检索未命中——在接入图书源前，未收录真书与无 DOI 编造文献同属该值）与 `"doi_not_found_in_crossref_and_openalex"`（显式 DOI 在 Crossref 与 OpenAlex 均返回 `404`）。
 3. **查询失败 / 未验证（`Unverified` / `未验证`）**：
    - 断网、DNS/连接拒绝、请求超时、HTTP `429` 限流、HTTP `5xx` 服务端故障或响应解析失败——包括其中一方返回 `404` 而另一方查询失败的情形——一律返回 **`Unverified`（未验证）**。
    - **`Unverified`（未验证）不写入本地 SQLite 缓存**，也不会归入 `GhostPaper`。网络恢复后再次运行会立即重新请求上游。

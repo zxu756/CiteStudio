@@ -301,12 +301,16 @@ assert "Not found in Crossref / OpenAlex (real_nodoi)" == en_map["real_nodoi"]["
 assert "fabricated" not in en_map["real_nodoi"]["detail"].lower(), en_map["real_nodoi"]
 assert "未在 Crossref / OpenAlex 中查到匹配记录 (real_nodoi)" == zh_map["real_nodoi"]["headline"], zh_map["real_nodoi"]
 assert "编造" not in zh_map["real_nodoi"]["detail"], zh_map["real_nodoi"]
+assert en_map["real_nodoi"].get("notFoundReason") == "no_doi_not_found_in_crossref_or_openalex", en_map["real_nodoi"]
+assert en_map["fake_nonsentinel"].get("notFoundReason") == "doi_not_found_in_crossref_and_openalex", en_map["fake_nonsentinel"]
+assert "notFoundReason" not in en_map["real_lecun"], en_map["real_lecun"]
 
 # MCP add_verified_bibtex must block both real_nodoi (not found in Crossref/OpenAlex) and fake_nodoi
 for req_id in (101, 102):
     txt = add_msgs[req_id]["result"]["content"][0]["text"]
     assert add_msgs[req_id]["result"].get("isError") is True, add_msgs[req_id]
     assert "ERR_UNVERIFIED_CITATION" in txt, txt
+    assert "no_doi_not_found_in_crossref_or_openalex" in txt, txt
 assert os.path.getsize(target_bib) == 0, "Target .bib must remain untouched when add_verified_bibtex rejects unverified citations"
 PYEOF
     echo "[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering the 2 recorded DOI-less titles real_nodoi & fake_nodoi): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion."
