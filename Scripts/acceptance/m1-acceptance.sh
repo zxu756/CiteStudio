@@ -590,7 +590,7 @@ PYEOF
     # SCRIPTED MUTATION VERIFICATION FOR M1 (C5 Year, C5 Author, C24 Skip Trait)
     # ------------------------------------------------------------------
     echo ""
-    echo "--- Scripted Mutation Verification (3 M1 Guards: C5 Year, C5 Author, C24 Skip Trait) ---"
+    echo "--- Scripted Mutation Verification (4 M1 Guards: C5 Year, C5 Author, C24 Skip Trait, CR2 Similarity 0.78->0.30) ---"
     GIT_STATUS_BEFORE="$(git -C "${ROOT_DIR}" status --porcelain)"
 
     run_single_mutation() {
@@ -690,6 +690,14 @@ PYEOF
     func realTectonicCompilation() throws {
         if ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] != "1" || TectonicRunner.detectBinary() == nil { return }'
 
+    run_single_mutation \
+        "M4_CR2_LowerTitleSimilarity078To030" \
+        "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
+        "FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests" \
+        "CR2: Title-search similarity threshold (0.78) boundary checks using strictly verbatim responses in Tests/Fixtures/recorded/" \
+        "    public static let minimumTitleSearchSimilarity: Double = 0.78" \
+        "    public static let minimumTitleSearchSimilarity: Double = 0.30"
+
     swift build -q
     GIT_STATUS_AFTER="$(git -C "${ROOT_DIR}" status --porcelain)"
     if [[ "${GIT_STATUS_AFTER}" != "${GIT_STATUS_BEFORE}" ]]; then
@@ -697,7 +705,7 @@ PYEOF
         echo "${GIT_STATUS_AFTER}" >&2
         exit 1
     fi
-    echo "[PASS] Scripted M1 Mutations: All 3 mutations (C5 year, C5 surname, C24 skip trait) failed their exact named @Test and restored cleanly."
+    echo "[PASS] Scripted M1 Mutations: All 4 mutations (C5 year, C5 surname, C24 skip trait, CR2 title similarity 0.78->0.30) failed their exact named @Test and restored cleanly."
     ACC_PASSED=$((ACC_PASSED + 1))
 
     ACC_TOTAL=$((ACC_PASSED + ACC_SKIPPED))

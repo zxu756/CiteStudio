@@ -683,6 +683,94 @@ struct FirewallTests {
         #expect(readmeZH.contains("Journal of the American Statistical Association"))
         #expect(readmeZH.contains("当成原书"))
     }
+
+    @Test("CR2: Title-search similarity threshold (0.78) boundary checks using strictly verbatim responses in Tests/Fixtures/recorded/")
+    func cr2RecordedTitleSimilarityThresholdBoundaryTests() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr2_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr2_cache.sqlite"),
+            transport: transport
+        )
+
+        // 1. End-to-end HTTP replay ABOVE 0.78 (similarity = 8/10 = 0.8000 >= 0.78):
+        //    Recorded OpenAlex/Crossref response for query "The Art of Computer Programming, Volume 1: Fundamental Algorithms"
+        //    contains MacLaren 1969 ("The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)", type="article").
+        let maclarenAbove = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_above_080, author = {MacLaren, M. Donald}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, journal = {SIAM Review}, year = {1969}}
+        """).first)
+        let simAbove = ScholarTriangulator.normalizedTitleSimilarity(
+            maclarenAbove.title,
+            "The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)"
+        )
+        #expect(abs(simAbove - 0.80) < 1e-9)
+        let diagAbove = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: maclarenAbove, triangulator: triangulator)
+        #expect(diagAbove.kind == .verified)
+        #expect(diagAbove.matchedRecord?.venue == "SIAM Review")
+
+        // 2. End-to-end HTTP replay BELOW 0.78 (similarity = 5/16 = 0.3125 < 0.78, but > 0.30):
+        //    Recorded Crossref response for query "Recursive Causal Lattices for Zero-Shot Climate Forecasting"
+        //    contains Jun Wang 2025 ("A zero-shot load forecasting method for extreme weather integrating causal learning and meta-learning",
+        //    venue="Energy", type="journal-article"). Author ("Wang") and year (2025) match; ONLY similarity 0.3125 < 0.78 rejects it.
+        //    NOTE on end-to-end HTTP replay coverage gap (现有录制测不到):
+        //    PublicScholarHTTPTransport sends entry.title verbatim in the HTTP query URL, and Tests/Fixtures/recorded/ only has 2 recorded
+        //    title queries; the sole candidate in (0.3125, 0.78) is Wells 1973 (0.6667), which is already blocked by type="book-review".
+        //    Therefore, in end-to-end HTTP replay, non-book-review candidates in (0.3125, 0.78) are 现有录制测不到 (no synthetic body added).
+        let wangBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_below_03125, author = {Wang, Jun}, title = {Recursive Causal Lattices for Zero-Shot Climate Forecasting}, journal = {Energy}, year = {2025}}
+        """).first)
+        let simWang = ScholarTriangulator.normalizedTitleSimilarity(
+            wangBelow.title,
+            "A zero-shot load forecasting method for extreme weather integrating causal learning and meta-learning"
+        )
+        #expect(abs(simWang - 0.3125) < 1e-9)
+        let diagWang = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: wangBelow, triangulator: triangulator)
+        #expect(diagWang.kind == .ghostPaper)
+        #expect(diagWang.kind != .metadataMismatch)
+
+        let montetBelow = try #require(BibTeXParser.parseBibTeX("""
+        @inproceedings{cr2_below_02353, author = {Montet, Fr{\\'e}d{\\'e}ric}, title = {Recursive Causal Lattices for Zero-Shot Climate Forecasting}, booktitle = {Conf}, year = {2025}}
+        """).first)
+        let diagMontet = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: montetBelow, triangulator: triangulator)
+        #expect(diagMontet.kind == .ghostPaper)
+
+        // 3. Direct candidate-matcher boundary check on verbatim recorded .raw JSON (10/13 = 0.7692 < 0.78 vs 11/13 = 0.8462 >= 0.78):
+        let recDir = RecordedFixturesReplayServer.defaultRecordedDirectory
+        let wakefieldRawData = try Data(contentsOf: recDir.appendingPathComponent("openalex_doi_10.1016_s0140-6736_97_11096-0_e1144ad9cb.raw"))
+        let wakefieldJSON = try #require(try JSONSerialization.jsonObject(with: wakefieldRawData) as? [String: Any])
+        let wakefieldRecord = try #require(PublicScholarHTTPTransport.parseOpenAlexWork(wakefieldJSON))
+
+        let tenOfThirteenBib = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_0769, author = {Wakefield, Andrew J.}, title = {Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental}, year = {1998}}
+        """).first)
+        let sim0769 = ScholarTriangulator.normalizedTitleSimilarity(tenOfThirteenBib.title, wakefieldRecord.title)
+        #expect(abs(sim0769 - (10.0 / 13.0)) < 1e-9) // 0.7692307... < 0.78
+        #expect(!ScholarTriangulator.isMatchingTitleSearchCandidate(
+            entry: tenOfThirteenBib,
+            record: wakefieldRecord,
+            upstreamWorkType: wakefieldRecord.workType
+        ))
+
+        let elevenOfThirteenBib = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_0846, author = {Wakefield, Andrew J.}, title = {Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder}, year = {1998}}
+        """).first)
+        let sim0846 = ScholarTriangulator.normalizedTitleSimilarity(elevenOfThirteenBib.title, wakefieldRecord.title)
+        #expect(abs(sim0846 - (11.0 / 13.0)) < 1e-9) // 0.8461538... >= 0.78
+        #expect(ScholarTriangulator.isMatchingTitleSearchCandidate(
+            entry: elevenOfThirteenBib,
+            record: wakefieldRecord,
+            upstreamWorkType: wakefieldRecord.workType
+        ))
+    }
 }
 
 /// Synthetic loopback HTTP server testing C5 candidate filtering (year diff 0/1/2, author mismatch, multi-candidate top-3, book-review rejection, and DOI regression).
