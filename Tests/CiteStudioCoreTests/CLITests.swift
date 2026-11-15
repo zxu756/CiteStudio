@@ -296,30 +296,117 @@ struct CLITests {
         #expect(readmeScript.contains("resolve_active_cli_lang"))
     }
 
-    @Test("C21: Real Tectonic compilation uses Swift Testing .enabled(if:) skip trait and Scripts/test.sh reports skipped counts separately from passed")
-    func c21TectonicTestUsesNativeSkipTraitAndTestRunnerSeparatesSkippedCounts() throws {
+    @Test("C21 + C24: When CITESTUDIO_REAL_TECTONIC is unset or tectonic is absent on PATH, Swift Testing emits a native skipped record (never passed) and --cli status respects PATH")
+    func c21AndC24TectonicTestEmitsActualSkippedFrameworkRecordWhenAbsentOnPath() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let coreTestsSource = try String(
-            contentsOf: repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/CiteStudioCoreTests.swift"),
-            encoding: .utf8
-        )
-        let testRunnerScript = try String(
-            contentsOf: repoRoot.appendingPathComponent("Scripts/test.sh"),
-            encoding: .utf8
-        )
-        let m0AcceptanceScript = try String(
-            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/m0-acceptance.sh"),
-            encoding: .utf8
-        )
 
-        #expect(coreTestsSource.contains(".enabled("))
-        #expect(!coreTestsSource.contains("print(\"SKIPPED: real tectonic compilation"))
-        #expect(testRunnerScript.contains("UNIT_TESTS_SUMMARY:"))
-        #expect(testRunnerScript.contains("MILESTONE_M0_SUMMARY:"))
-        #expect(m0AcceptanceScript.contains("M0_ACCEPTANCE_SUMMARY:"))
+        let strippedPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+        // 1. Direct unit & CLI status checks on PATH resolution (custom mock binary on PATH vs stripped PATH)
+        let tmpBinDir = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c24_bin_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpBinDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpBinDir) }
+        let fakeTectonic = tmpBinDir.appendingPathComponent("tectonic")
+        try "#!/bin/sh\nexit 0\n".write(to: fakeTectonic, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeTectonic.path)
+
+        #expect(TectonicRunner.detectBinary(environment: ["PATH": strippedPath]) == nil)
+        #expect(TectonicRunner.detectBinary(environment: ["PATH": "\(tmpBinDir.path):\(strippedPath)"])?.path == fakeTectonic.path)
+        #expect(TypstRunner.detectBinary(environment: ["PATH": strippedPath]) == nil)
+
+        let statusStrippedEN = try Self.runSubprocessCLI(
+            args: ["--cli", "status", "--lang", "en"],
+            extraEnv: ["PATH": strippedPath]
+        )
+        #expect(statusStrippedEN.code == 0)
+        #expect(statusStrippedEN.stdout.contains("Tectonic: not installed"))
+
+        // 2. Execute the actual Swift Testing test runner binary directly on realTectonicCompilation (avoids recursive SwiftPM .build lock)
+        func runFilteredSwiftTest(realTectonicFlag: String?) throws -> (code: Int32, output: String) {
+            let tmpHome = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c24_home_\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tmpHome, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmpHome) }
+
+            var env = ProcessInfo.processInfo.environment
+            env["HOME"] = tmpHome.path
+            env["PATH"] = strippedPath
+            env["CITESTUDIO_EPHEMERAL_DEFAULTS"] = "1"
+            env["HTTP_PROXY"] = "http://127.0.0.1:9"
+            env["HTTPS_PROXY"] = "http://127.0.0.1:9"
+            env["NO_PROXY"] = "127.0.0.1,localhost"
+            if let realTectonicFlag {
+                env["CITESTUDIO_REAL_TECTONIC"] = realTectonicFlag
+            } else {
+                env.removeValue(forKey: "CITESTUDIO_REAL_TECTONIC")
+            }
+
+            let proc = Process()
+            proc.currentDirectoryURL = repoRoot
+            if let bundleFlagIdx = CommandLine.arguments.firstIndex(of: "--test-bundle-path"),
+               bundleFlagIdx + 1 < CommandLine.arguments.count {
+                proc.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+                proc.arguments = [
+                    "--test-bundle-path",
+                    CommandLine.arguments[bundleFlagIdx + 1],
+                    "--testing-library",
+                    "swift-testing",
+                    "--filter",
+                    "CiteStudioCoreTests.CiteStudioCoreTests/realTectonicCompilation",
+                    "--no-parallel"
+                ]
+            } else {
+                let xctestCandidates = [
+                    repoRoot.appendingPathComponent(".build/out/Products/Debug/CiteStudioCoreTests.xctest").path,
+                    repoRoot.appendingPathComponent(".build/debug/CiteStudioPackageTests.xctest").path,
+                    repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/CiteStudioPackageTests.xctest").path
+                ]
+                let bundlePath = try #require(xctestCandidates.first(where: { FileManager.default.fileExists(atPath: $0) }))
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+                proc.arguments = ["xctest", bundlePath]
+            }
+            proc.environment = env
+
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = pipe
+            try proc.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            return (proc.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        let targetLabel = "Real Tectonic compilation produces PDF and SyncTeX output"
+
+        // Case A: CITESTUDIO_REAL_TECTONIC unset -> framework emits skipped record, never passed
+        let unsetRun = try runFilteredSwiftTest(realTectonicFlag: nil)
+        #expect(unsetRun.code == 0, "Expected exit 0 when skipped, output:\n\(unsetRun.output)")
+        let unsetLines = unsetRun.output.components(separatedBy: .newlines)
+        let unsetSkipped = unsetLines.contains { line in
+            (line.hasPrefix("➜ Test \"\(targetLabel)\"") || line.hasPrefix("◇ Test \"\(targetLabel)\""))
+                && line.contains("skipped")
+        }
+        let unsetPassed = unsetLines.contains { line in
+            line.hasPrefix("✔ Test \"\(targetLabel)\"") && line.contains("passed")
+        }
+        #expect(unsetSkipped, "Expected Swift Testing skipped line in actual output, got:\n\(unsetRun.output)")
+        #expect(!unsetPassed, "Skipped test must never be emitted as passed:\n\(unsetRun.output)")
+
+        // Case B: CITESTUDIO_REAL_TECTONIC=1 with tectonic absent on PATH -> framework STILL emits skipped record, never passed
+        let noPathRun = try runFilteredSwiftTest(realTectonicFlag: "1")
+        #expect(noPathRun.code == 0, "Expected exit 0 (skipped) when tectonic is absent on PATH, got exit \(noPathRun.code):\n\(noPathRun.output)")
+        let noPathLines = noPathRun.output.components(separatedBy: .newlines)
+        let noPathSkipped = noPathLines.contains { line in
+            (line.hasPrefix("➜ Test \"\(targetLabel)\"") || line.hasPrefix("◇ Test \"\(targetLabel)\""))
+                && line.contains("skipped")
+        }
+        let noPathPassed = noPathLines.contains { line in
+            line.hasPrefix("✔ Test \"\(targetLabel)\"") && line.contains("passed")
+        }
+        #expect(noPathSkipped, "Expected Swift Testing skipped line when tectonic is absent on PATH, got:\n\(noPathRun.output)")
+        #expect(!noPathPassed, "Test without tectonic on PATH must never be emitted as passed:\n\(noPathRun.output)")
     }
 
     @Test("C23: validate_recorded_fixtures.py verifies manifest URL/privacy, requested_at, HTTP Date header, and raw SHA-256, and rejects 1-byte tampering or blank Date")
@@ -353,10 +440,14 @@ struct CLITests {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        func runValidator(on dir: URL, allowCount: Int = 1) throws -> (Int32, String, String) {
+        func runValidator(on dir: URL, allowCount: Int = 1, expectedManifestSha: String? = nil) throws -> (Int32, String, String) {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            p.arguments = [validatorURL.path, dir.path, "--min-items", "\(allowCount)"]
+            var args = [validatorURL.path, dir.path, "--min-items", "\(allowCount)"]
+            if let expectedManifestSha {
+                args.append(contentsOf: ["--expected-manifest-sha256", expectedManifestSha])
+            }
+            p.arguments = args
             let out = Pipe()
             let err = Pipe()
             p.standardOutput = out
@@ -413,9 +504,28 @@ struct CLITests {
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: tmp.appendingPathComponent("manifest.json"))
 
-        // 1. Valid directory passes
-        let validRes = try runValidator(on: tmp, allowCount: 1)
+        // 1. Valid directory passes (and passes with matching --expected-manifest-sha256, fails with mismatched digest)
+        let manifestPath = tmp.appendingPathComponent("manifest.json")
+        let manifestShaProc = Process()
+        manifestShaProc.executableURL = URL(fileURLWithPath: "/usr/bin/shasum")
+        manifestShaProc.arguments = ["-a", "256", manifestPath.path]
+        let manifestShaPipe = Pipe()
+        manifestShaProc.standardOutput = manifestShaPipe
+        try manifestShaProc.run()
+        manifestShaProc.waitUntilExit()
+        let manifestShaOut = String(data: manifestShaPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let pinnedManifestDigest = String(manifestShaOut.split(separator: " ").first ?? "")
+
+        let validRes = try runValidator(on: tmp, allowCount: 1, expectedManifestSha: pinnedManifestDigest)
         #expect(validRes.0 == 0, "Expected valid manifest to pass, stderr=\(validRes.2)")
+
+        let wrongPinRes = try runValidator(
+            on: tmp,
+            allowCount: 1,
+            expectedManifestSha: String(repeating: "0", count: 64)
+        )
+        #expect(wrongPinRes.0 != 0)
+        #expect(wrongPinRes.2.contains("manifest.json sha256 mismatch"))
 
         // 2. Corrupt 1 byte in .raw -> MUST fail!
         var corrupted = rawBytes

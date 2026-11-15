@@ -247,8 +247,9 @@ struct CiteStudioCoreTests {
     @Test(
         "Real Tectonic compilation produces PDF and SyncTeX output",
         .enabled(
-            if: ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] == "1",
-            "Requires CITESTUDIO_REAL_TECTONIC=1 (external TeX bundle cache / network)"
+            if: ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] == "1"
+                && TectonicRunner.detectBinary() != nil,
+            "Requires CITESTUDIO_REAL_TECTONIC=1 and tectonic on PATH (external TeX bundle cache / network)"
         )
     )
     func realTectonicCompilation() throws {

@@ -1,0 +1,53 @@
+==================================================================
+CiteStudio M1 Acceptance Suite (m1-acceptance.sh)
+Timestamp (UTC): 2026-11-15T04:29:57Z
+Commit / Branch: m1/real @ c8298c3
+Offline Proxy Guard: HTTP_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost
+==================================================================
+==> Building debug binary (CiteStudio)...
+
+--- M1 Item 1: ScholarOS 460-Entry Benchmark Input Format ---
+[SKIP] M1 Item 1 (ScholarOS 460-entry benchmark format & input): 等评测集 — ScholarOS 460-entry dataset has not been built yet.
+
+--- M1 Item 2: ScholarOS 460-Entry Replay Benchmark (m1-citation-bench.py) ---
+[SKIP] M1 Item 2 (ScholarOS 460-entry benchmark replay & threshold evaluation): 等评测集 — ScholarOS 460-entry dataset has not been built yet.
+
+--- M1 Item 3 (C5 Part A): Recorded 12-Entry Replay (test.bib + CLI/MCP Parity + Bilingual Wording) ---
+VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11-14T20:29:06Z completed_at=2026-11-14T20:29:44Z
+  real_lecun             -> CLI=Verified         | MCP=Verified        
+  real_lstm              -> CLI=Verified         | MCP=Verified        
+  real_watson            -> CLI=Verified         | MCP=Verified        
+  fake_nonsentinel       -> CLI=GhostPaper       | MCP=GhostPaper      
+  fake_sentinel          -> CLI=GhostPaper       | MCP=GhostPaper      
+  wrongtitle             -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  wrongyear              -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  wrongyear5             -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  real_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
+  fake_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
+  retracted_seralini     -> CLI=Retracted        | MCP=Retracted       
+  retracted_wakefield    -> CLI=Retracted        | MCP=Retracted       
+[PASS] C5 Part A (Recorded Replay): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion.
+
+--- M1 Item 3 (C5 Part B): Synthetic Loopback Edge Matrix (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---
+  [synthetic edge] nodoi_knuth_diff0        -> Verified
+  [synthetic edge] nodoi_knuth_diff1        -> Verified
+  [synthetic edge] nodoi_knuth_diff2        -> GhostPaper
+  [synthetic edge] nodoi_author_mismatch    -> GhostPaper
+  [synthetic edge] nodoi_book_review_only   -> GhostPaper
+  [synthetic edge] doi_year_diff5           -> MetadataMismatch
+  [synthetic edge] doi_wrong_title          -> MetadataMismatch
+[PASS] C5 Part B (Synthetic Loopback Edge Matrix): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper (not MetadataMismatch, blocked from .bib), DOI Δyear=5 & wrong title -> MetadataMismatch.
+
+--- C24: Actual Swift Testing Skip Output (PATH without tectonic) & Recorded Fixture Immutability ---
+[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; Tests/Fixtures/recorded/ has 0 diff vs m0/honest (manifest SHA-256=29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9).
+
+--- Scripted Mutation Verification (3 M1 Guards: C5 Year, C5 Author, C24 Skip Trait) ---
+  [ok] M1_C5_DisableYearDriftGuard: compiled cleanly -> failed named test 'FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M2_C5_DisableFirstAuthorSurnameGuard: compiled cleanly -> failed named test 'FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M3_C24_EarlyReturnInsteadOfSkipTrait: compiled cleanly -> failed named test 'CLITests/c21AndC24TectonicTestEmitsActualSkippedFrameworkRecordWhenAbsentOnPath' (exit=1) -> restored Tests/CiteStudioCoreTests/CiteStudioCoreTests.swift
+[PASS] Scripted M1 Mutations: All 3 mutations (C5 year, C5 surname, C24 skip trait) failed their exact named @Test and restored cleanly.
+
+==================================================================
+M1_ACCEPTANCE_SUMMARY: total=6 passed=4 skipped=2 exit_code=0 elapsed_sec=15 (skipped items NOT counted as passed)
+SKIPPED_ITEMS: M1_Item_1(等评测集) M1_Item_2(等评测集)
+==================================================================

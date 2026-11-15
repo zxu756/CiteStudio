@@ -40,14 +40,14 @@
    - **DOI 元数据一致性比对**：按 DOI 取回记录（若 Crossref 返回 HTTP `404`，例如 DataCite 注册的 arXiv `10.48550/...` DOI，会继续查询 OpenAlex），并核对**归一化标题相似度**（Jaccard 词项重合度 `>= 0.60`）、**去除 LaTeX 重音符号后的第一作者姓氏**与**发表年份**（`|Δyear| <= 1`）。真实 DOI 若配上了错误标题、错误作者或错误年份，会被判定为 **`MetadataMismatch`（元数据不符）**。
    - **撤稿识别（`Retracted`）**：检查 Crossref `update-to` 与 `updated-by` 中 `type` 或 `label` 含 `retract` 或 `withdraw` 的记录、Crossref `relation.is-retracted-by`、标题 `"RETRACTED:"` / `"WITHDRAWN:"` 前缀，以及 OpenAlex `is_retracted == true`。
    - **预印本转正提示（`PreprintUpgrade`）**：当文稿引用 `arXiv` / `bioRxiv` / `medRxiv` 预印本且上游检出同行评审正式版时，给出正式版 BibTeX 替换建议。
-2. **确认不存在（`GhostPaper`）**：
-   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或 Crossref 与 OpenAlex 标题检索均正常返回 HTTP `200` 且无匹配条目时，才判定为 **`GhostPaper`（确认不存在）**。
+2. **确认不存在 / 库中未查到（`GhostPaper`）**：
+   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或在无 DOI 条目的前 3 条标题检索均正常返回 HTTP `200` 且没有任何候选同时满足标题归一化相似度（`>= 0.78`）、发表年份差（`|Δyear| <= 1`）、第一作者姓氏一致及非书评类型（`book-review`）时（`C5`），才归入 **`GhostPaper`（`NOT FOUND`）**。对无 DOI 条目，诊断标题明确标注为“未在 Crossref / OpenAlex 中查到匹配记录”，不宣称文献系编造。
 3. **查询失败 / 未验证（`Unverified` / `未验证`）**：
    - 断网、DNS/连接拒绝、请求超时、HTTP `429` 限流、HTTP `5xx` 服务端故障或响应解析失败——包括其中一方返回 `404` 而另一方查询失败的情形——一律返回 **`Unverified`（未验证）**。
    - **`Unverified`（未验证）不写入本地 SQLite 缓存**，也不会归入 `GhostPaper`。网络恢复后再次运行会立即重新请求上游。
    - SQLite 缓存条目带有明确的过期时间（TTL）：命中记录默认缓存 `7 天`，确认不存在记录默认采用更短的 `24 小时` TTL；读取时自动剔除过期缓存，也可执行 `--cli clear-cache` 手动清空。
 
-> **当前已知局限**：无 DOI 的早期经典书籍或会议条目（例如 Knuth 1968 *The Art of Computer Programming*）目前仅按 Crossref/OpenAlex 标题首条命中比对，遇到包含相同常见词的后续期刊论文时可能报 `MetadataMismatch`。多候选综合打分与 Open Library 图书源回退计划在 M1 实现。
+> **当前已知局限**：Crossref 与 OpenAlex 主要收录期刊与会议论文，对早期无 DOI 专著、学位论文及技术报告覆盖有限。对于 Knuth 1968 *The Art of Computer Programming* 这类在上游检索结果中仅出现他人书评（如 `Odeh` 1969、`MacLaren` 1969、`Wells` 1973）的无 DOI 专著，`C5` 候选过滤会排除作者/年份/书评类型不符的条目并返回“未在 Crossref / OpenAlex 中查到匹配记录”（`GhostPaper` / `NOT FOUND`，不再误报 `MetadataMismatch`），在接入 Open Library 等图书源前不会自动放行。
 
 ### 2. MCP 权威元数据写入门禁（`CiteStudio --mcp`）
 通过标准输入/输出（`stdio`）运行 JSON-RPC 2.0 MCP 服务，提供 6 个工具：
@@ -141,7 +141,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | .build/debug/CiteStu
 - **桌面 GUI 打开与编辑本地项目目录（`M3`）**：通过菜单打开任意 `.tex` / `.typ` / `.bib` 文件夹、保存修改回磁盘及 `FSEvents` 文件变更自动刷新。
 - **桌面 GUI 编辑器与 PDF 双向 SyncTeX 跳转（`M3`）**：在编辑器点击代码行跳转到 PDF 对应位置，或按住 `⌘` 点击 PDF 跳回源码行（当前 `SyncTeXMapper` 仅作为底层解析库存在，尚未接入界面交互）。
 - **CLI/MCP PDF 建索引入口与句子级证据核验（`M2` / `M3`）**：在命令行与 MCP 提供 `pdfs/*.pdf` 建索引入口，按句子粒度切分并精确定位坐标框、核对数字与否定词一致性，以及在桌面 PDF 面板绘制高亮框。
-- **多候选排序与无 DOI 经典书籍回退检索（`M1`）**：结合标题、作者、年份对多条候选记录综合打分并接入 Open Library，提升早期无 DOI 专著的识别准确率。
+- **共用 460 条评测集回放与无 DOI 专著图书源回退（`M1` / `M2`）**：在 ScholarOS 共用 460 条评测集（待评测集建成）上执行离线回放评测，并接入 Open Library 等专著数据源以降低早期无 DOI 书籍的未命中率。
 
 ---
 

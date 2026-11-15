@@ -139,4 +139,57 @@ struct MCPTests {
         let unknownMethodResp = try #require(await mcp.handleJSONLine(#"{"jsonrpc":"2.0","id":7,"method":"unknown/method","params":{}}"#))
         #expect(unknownMethodResp.contains("-32601"))
     }
+
+    @Test("C5 MCP Gate: add_verified_bibtex blocks DOI-less non-matching book-review candidates with ERR_UNVERIFIED_CITATION and writes .bib untampered")
+    func c5MCPBlocksNonMatchingNoDOIBookReviewCandidate() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_mcp_c5_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let serverHTTP = try LoopbackScholarServer(initialMode: .healthy)
+        defer { serverHTTP.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: serverHTTP.crossrefBaseURL,
+            openAlexBaseURL: serverHTTP.openAlexBaseURL
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cache.sqlite"),
+            transport: transport
+        )
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer)
+
+        let bibURL = tmp.appendingPathComponent("refs.bib")
+        try "".write(to: bibURL, atomically: true, encoding: .utf8)
+
+        let knuthBib = "@book{real_nodoi, author = {Knuth, Donald E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, publisher = {Addison-Wesley}, year = {1968}}"
+
+        // 1. verify_citation returns GhostPaper (not MetadataMismatch on Jeeves 1969 review)
+        let verifyReq: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 31,
+            "method": "tools/call",
+            "params": [
+                "name": "verify_citation",
+                "arguments": ["bibtex": knuthBib]
+            ]
+        ]
+        let verifyResp = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: verifyReq), encoding: .utf8)!))
+        #expect(verifyResp.contains("GhostPaper"))
+        #expect(!verifyResp.contains("MetadataMismatch"))
+
+        // 2. add_verified_bibtex rejects unverified/not-found citation with ERR_UNVERIFIED_CITATION and leaves .bib empty
+        let addReq: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 32,
+            "method": "tools/call",
+            "params": [
+                "name": "add_verified_bibtex",
+                "arguments": ["bib_file": bibURL.path, "bibtex": knuthBib]
+            ]
+        ]
+        let addResp = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: addReq), encoding: .utf8)!))
+        #expect(addResp.contains("ERR_UNVERIFIED_CITATION"))
+        #expect(try String(contentsOf: bibURL, encoding: .utf8).isEmpty)
+    }
 }

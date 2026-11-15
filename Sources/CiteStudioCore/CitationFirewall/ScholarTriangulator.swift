@@ -141,19 +141,19 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
             return .confirmedNotFound
         }
 
-        let oaResult = await queryOpenAlexByTitle(trimmedTitle)
+        let oaResult = await queryOpenAlexByTitle(entry: entry, queryTitle: trimmedTitle)
         if case .success(.some(let oaRecord)) = oaResult {
             return .found(oaRecord)
         }
 
-        let crResult = await queryCrossrefByTitle(trimmedTitle)
+        let crResult = await queryCrossrefByTitle(entry: entry, queryTitle: trimmedTitle)
         if case .success(.some(let crRecord)) = crResult {
             return .found(crRecord)
         }
 
         switch (oaResult, crResult) {
         case (.success(.none), .success(.none)):
-            // Both registries returned HTTP 200 and neither found a title match >= 0.78
+            // Both registries returned HTTP 200 and neither found a candidate matching title + author surname + year(±1)
             return .confirmedNotFound
         case (.failure(let reason), _):
             return .lookupFailed(reason)
@@ -302,13 +302,13 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         }
     }
 
-    private func queryCrossrefByTitle(_ title: String) async -> Result<ScholarRecord?, ScholarLookupFailureReason> {
+    private func queryCrossrefByTitle(entry: BibEntry, queryTitle: String) async -> Result<ScholarRecord?, ScholarLookupFailureReason> {
         guard let worksURL = Self.appendPath(crossrefBaseURL, suffix: "/works"),
               var comps = URLComponents(url: worksURL, resolvingAgainstBaseURL: false) else {
             return .failure(.invalidResponse("Invalid Crossref search URL"))
         }
         comps.queryItems = [
-            URLQueryItem(name: "query.bibliographic", value: title),
+            URLQueryItem(name: "query.bibliographic", value: queryTitle),
             URLQueryItem(name: "rows", value: "3")
         ]
         guard let url = comps.url else {
@@ -326,8 +326,13 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
                 return .failure(.invalidResponse("Missing Crossref items array"))
             }
             for item in items {
+                let upstreamType = item["type"] as? String
                 if let rec = Self.parseCrossrefMessage(item),
-                   ScholarTriangulator.normalizedTitleSimilarity(title, rec.title) >= 0.78 {
+                   ScholarTriangulator.isMatchingTitleSearchCandidate(
+                       entry: entry,
+                       record: rec,
+                       upstreamWorkType: upstreamType
+                   ) {
                     return .success(rec)
                 }
             }
@@ -335,13 +340,13 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         }
     }
 
-    private func queryOpenAlexByTitle(_ title: String) async -> Result<ScholarRecord?, ScholarLookupFailureReason> {
+    private func queryOpenAlexByTitle(entry: BibEntry, queryTitle: String) async -> Result<ScholarRecord?, ScholarLookupFailureReason> {
         guard let worksURL = Self.appendPath(openAlexBaseURL, suffix: "/works"),
               var comps = URLComponents(url: worksURL, resolvingAgainstBaseURL: false) else {
             return .failure(.invalidResponse("Invalid OpenAlex search URL"))
         }
         comps.queryItems = [
-            URLQueryItem(name: "search", value: title),
+            URLQueryItem(name: "search", value: queryTitle),
             URLQueryItem(name: "per-page", value: "3")
         ]
         guard let url = comps.url else {
@@ -358,8 +363,13 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
                 return .failure(.invalidResponse("Missing OpenAlex results array"))
             }
             for work in results {
+                let upstreamType = work["type"] as? String
                 guard let record = Self.parseOpenAlexWork(work),
-                      ScholarTriangulator.normalizedTitleSimilarity(title, record.title) >= 0.78 else {
+                      ScholarTriangulator.isMatchingTitleSearchCandidate(
+                          entry: entry,
+                          record: record,
+                          upstreamWorkType: upstreamType
+                      ) else {
                     continue
                 }
                 return .success(record)
@@ -648,6 +658,14 @@ public final class ScholarTriangulator: @unchecked Sendable {
         }
     }
 
+    public static let minimumTitleSearchSimilarity: Double = 0.78
+    public static let maximumTitleSearchYearDrift: Int = 1
+
+    private static let generationalSuffixes: Set<String> = ["jr", "sr", "ii", "iii", "iv"]
+    private static let nobiliaryParticles: Set<String> = [
+        "van", "von", "de", "del", "della", "di", "du", "la", "le", "da", "dos", "das", "der", "den", "ten", "ter"
+    ]
+
     public static func cacheKey(for entry: BibEntry) -> String {
         if let doi = entry.doi, !doi.isEmpty {
             return "doi:\(doi.lowercased())"
@@ -656,7 +674,95 @@ public final class ScholarTriangulator: @unchecked Sendable {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "_")
-        return "title:\(normTitle)"
+        let normAuthor = normalizedAuthorSurname(from: entry.authors.first)
+        let yearToken = entry.year.map(String.init) ?? "none"
+        return "title:\(normTitle)|author:\(normAuthor)|year:\(yearToken)"
+    }
+
+    public static func normalizedAuthorSurname(from rawAuthor: String?) -> String {
+        guard let rawAuthor else { return "" }
+        let cleaned = rawAuthor
+            .replacingOccurrences(of: "{", with: "")
+            .replacingOccurrences(of: "}", with: "")
+            .replacingOccurrences(of: "ß", with: "ss")
+            .replacingOccurrences(of: "ẞ", with: "ss")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return "" }
+
+        let folded = foldForComparison(cleaned)
+        if folded == "unknown" { return "" }
+
+        if let commaIdx = folded.firstIndex(of: ",") {
+            let familySegment = String(folded[..<commaIdx])
+            var words = familySegment
+                .components(separatedBy: .whitespacesAndNewlines)
+                .map { $0.components(separatedBy: CharacterSet.alphanumerics.inverted).joined() }
+                .filter { !$0.isEmpty }
+            while words.count > 1, let first = words.first, nobiliaryParticles.contains(first) {
+                words.removeFirst()
+            }
+            return words.joined()
+        }
+
+        var words = folded
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.components(separatedBy: CharacterSet.alphanumerics.inverted).joined() }
+            .filter { !$0.isEmpty }
+        while words.count > 1, let last = words.last, generationalSuffixes.contains(last) {
+            words.removeLast()
+        }
+        return words.last ?? ""
+    }
+
+    public static func firstAuthorSurnamesMatch(_ lhsAuthor: String?, _ rhsAuthor: String?) -> Bool {
+        let lhs = normalizedAuthorSurname(from: lhsAuthor)
+        let rhs = normalizedAuthorSurname(from: rhsAuthor)
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return lhs == rhs
+    }
+
+    /// C5 (`tools/citestudio.md` M1 item 3): For entries without a DOI, high title similarity alone is insufficient.
+    /// A candidate matches only when title similarity >= 0.78, candidate is not a book review for a non-review citation,
+    /// publication year differs by at most 1 year, and normalized first-author surname matches.
+    public static func isMatchingTitleSearchCandidate(
+        entry: BibEntry,
+        record: ScholarRecord,
+        upstreamWorkType: String? = nil
+    ) -> Bool {
+        guard normalizedTitleSimilarity(entry.title, record.title) >= minimumTitleSearchSimilarity else {
+            return false
+        }
+
+        let normType = (upstreamWorkType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lowerCandTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lowerCitedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let candidateIsBookReview = normType == "book-review"
+            || lowerCandTitle.hasPrefix("book review:")
+            || lowerCandTitle.hasPrefix("book review :")
+            || lowerCandTitle.hasPrefix("[book review]")
+        let citedIsBookReview = lowerCitedTitle.hasPrefix("book review")
+            || lowerCitedTitle.hasPrefix("[book review]")
+        if candidateIsBookReview && !citedIsBookReview {
+            return false
+        }
+
+        if let citedYear = entry.year, citedYear > 0, record.year > 0 {
+            if abs(citedYear - record.year) > maximumTitleSearchYearDrift {
+                return false
+            }
+        }
+
+        let citedSurname = normalizedAuthorSurname(from: entry.authors.first)
+        let candidateSurname = normalizedAuthorSurname(from: record.authors.first)
+        if !citedSurname.isEmpty || !candidateSurname.isEmpty {
+            guard !citedSurname.isEmpty,
+                  !candidateSurname.isEmpty,
+                  citedSurname == candidateSurname else {
+                return false
+            }
+        }
+
+        return true
     }
 
     public static func foldForComparison(_ text: String) -> String {

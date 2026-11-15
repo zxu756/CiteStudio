@@ -668,9 +668,11 @@ expected_m0_11 = {
 }
 for k, exp_v in expected_m0_11.items():
     assert cli_map[k] == exp_v, f"Row 8 expected {k}={exp_v}, got {cli_map[k]}"
-assert cli_map["real_nodoi"] == "MetadataMismatch", (
-    f"Row 8 C5 baseline (real_nodoi Knuth 1968): expected MetadataMismatch on recorded Odeh 1969 book review, got {cli_map['real_nodoi']}"
+assert cli_map["real_nodoi"] == "GhostPaper", (
+    f"Row 8 (M1 C5 fixed — real_nodoi Knuth 1968): recorded Odeh/MacLaren/Wells book reviews rejected on author/year/type, expected GhostPaper (not found), got {cli_map['real_nodoi']}"
 )
+real_nodoi_entry = next(d for d in cli_data["entries"] if d["citeKey"] == "real_nodoi")
+assert "Not found in Crossref / OpenAlex" in real_nodoi_entry["headline"], real_nodoi_entry
 
 c16_verdict = c16_data["entries"][0]["verdict"]
 assert c16_verdict == "Verified", f"C16 DataCite arXiv DOI 10.48550/arXiv.1706.03762 expected Verified, got {c16_verdict}"

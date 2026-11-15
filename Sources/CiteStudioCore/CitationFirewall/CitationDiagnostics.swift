@@ -29,18 +29,34 @@ public enum CitationDiagnosticsEngine {
             )
 
         case .confirmedNotFound:
-            return CitationDiagnostic(
-                citeKey: entry.citeKey,
-                kind: .ghostPaper,
-                headline: "Confirmed not found (\(entry.citeKey))",
-                detail: "Neither Crossref nor OpenAlex found this DOI or a matching title. Blocked by Citation Firewall.",
-                headlineZh: "确认不存在 (\(entry.citeKey))",
-                detailZh: "Crossref 与 OpenAlex 对该 DOI 均返回未找到，或两个数据源按标题均无相近记录；已被引文防火墙拦截。",
-                matchedRecord: nil,
-                upgradedBibTeX: nil,
-                lineNumbers: lineNumbers,
-                hasLocalPDFEvidence: hasLocalPDF
-            )
+            let hasExplicitDOI = !(entry.doi?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            if hasExplicitDOI {
+                return CitationDiagnostic(
+                    citeKey: entry.citeKey,
+                    kind: .ghostPaper,
+                    headline: "Confirmed not found (\(entry.citeKey))",
+                    detail: "Neither Crossref nor OpenAlex found this DOI. Blocked by Citation Firewall.",
+                    headlineZh: "确认不存在 (\(entry.citeKey))",
+                    detailZh: "Crossref 与 OpenAlex 对该 DOI 均返回 404（未找到）；已被引文防火墙拦截。",
+                    matchedRecord: nil,
+                    upgradedBibTeX: nil,
+                    lineNumbers: lineNumbers,
+                    hasLocalPDFEvidence: hasLocalPDF
+                )
+            } else {
+                return CitationDiagnostic(
+                    citeKey: entry.citeKey,
+                    kind: .ghostPaper,
+                    headline: "Not found in Crossref / OpenAlex (\(entry.citeKey))",
+                    detail: "No Crossref or OpenAlex title-search candidate matched title (>= 0.78), first-author surname, and year (±1). Older books, theses, or reports without a DOI may not be indexed; blocked by Citation Firewall.",
+                    headlineZh: "未在 Crossref / OpenAlex 中查到匹配记录 (\(entry.citeKey))",
+                    detailZh: "Crossref 与 OpenAlex 按标题检索均未找到同时满足标题相似度（>= 0.78）、第一作者姓氏一致且年份相差不超过 1 年的记录（无 DOI 的早期专著、学位论文或技术报告可能未被收录）；引文防火墙已拦截自动写入。",
+                    matchedRecord: nil,
+                    upgradedBibTeX: nil,
+                    lineNumbers: lineNumbers,
+                    hasLocalPDFEvidence: hasLocalPDF
+                )
+            }
 
         case .found(let record):
             if record.isRetracted {
@@ -63,10 +79,9 @@ public enum CitationDiagnosticsEngine {
             let titleSimilarity = ScholarTriangulator.normalizedTitleSimilarity(trimmedBibTitle, record.title)
             let titleMismatch = trimmedBibTitle.isEmpty || titleSimilarity < minimumDOITitleSimilarity
 
-            let bibSurname = ScholarTriangulator.foldForComparison(entry.firstAuthorSurname)
-            let recSurname = ScholarTriangulator.foldForComparison(record.firstAuthorSurname)
-            let authorMismatch = !bibSurname.isEmpty && !recSurname.isEmpty && bibSurname != "unknown"
-                && !recSurname.contains(bibSurname) && !bibSurname.contains(recSurname)
+            let bibSurname = ScholarTriangulator.normalizedAuthorSurname(from: entry.authors.first)
+            let recSurname = ScholarTriangulator.normalizedAuthorSurname(from: record.authors.first)
+            let authorMismatch = !bibSurname.isEmpty && !recSurname.isEmpty && bibSurname != recSurname
 
             let yearDrift: Int = {
                 guard let by = entry.year, record.year > 0 else { return 0 }

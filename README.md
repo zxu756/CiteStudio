@@ -41,13 +41,13 @@ Queries **Crossref** and **OpenAlex** over `URLSession` and separates three upst
    - **Retraction detection**: Checks Crossref `update-to` and `updated-by` notices whose `type` or `label` contains `retract` or `withdraw`, Crossref `relation.is-retracted-by`, `"RETRACTED:"` / `"WITHDRAWN:"` title prefixes, and OpenAlex `is_retracted == true`.
    - **Preprint upgrade hint**: When a cited `arXiv` / `bioRxiv` / `medRxiv` entry matches an upstream peer-reviewed venue, surfaces **`PreprintUpgrade`** with formatted BibTeX.
 2. **Confirmed Not Found (`GhostPaper`)**:
-   - Reported **only** when **both** Crossref and OpenAlex explicitly return HTTP `404` (not found) for a queried DOI, or when both Crossref and OpenAlex title queries complete with HTTP `200` and return zero matching records.
+   - Reported **only** when **both** Crossref and OpenAlex explicitly return HTTP `404` (not found) for a queried DOI, or when an entry lacks a DOI and both Crossref and OpenAlex top-3 title queries complete with HTTP `200` without any candidate matching normalized title similarity (`>= 0.78`), publication year (`|Δyear| <= 1`), normalized first-author surname, and non-`book-review` work type (`C5`). For DOI-less entries, the diagnostic headline states `"Not found in Crossref / OpenAlex"` rather than claiming the work is fabricated.
 3. **Lookup Failed (`Unverified`)**:
    - Offline networks, DNS/socket failures, request timeouts, HTTP `429` rate limits, HTTP `5xx` upstream errors, or malformed JSON responses — including cases where one registry returns `404` while the second registry fails — are reported as **`Unverified` (`未验证`)**.
    - **`Unverified` results are never written to the SQLite cache** and are never conflated with `GhostPaper`. Once connectivity recovers, subsequent runs re-query upstream immediately.
    - Cached entries carry explicit TTL timestamps (`7 days` for found records; `24 hours` for confirmed-not-found records), and expired entries are evicted automatically on read or purged manually via `--cli clear-cache`.
 
-> **Current Limitation**: Entries without a DOI (such as older books like Knuth 1968 *The Art of Computer Programming*) currently rely on first-hit title search in Crossref/OpenAlex and may return `MetadataMismatch` when a newer article shares title tokens. Multi-candidate ranking and Open Library book lookup are scheduled for M1.
+> **Current Limitation**: Crossref and OpenAlex primarily index journal and conference works rather than pre-DOI monographs, dissertations, or technical reports. When a classic book without a DOI (such as Knuth 1968 *The Art of Computer Programming*) is absent from Crossref/OpenAlex top-3 results — or when upstream only returns book reviews by other authors (`Odeh` 1969, `MacLaren` 1969, `Wells` 1973) — `C5` candidate filtering rejects those non-matching reviews so the entry is reported as not found in Crossref/OpenAlex (`GhostPaper` / `NOT FOUND`) rather than `MetadataMismatch`, and it cannot be auto-verified without external monograph registries (e.g., Open Library).
 
 ### 2. Canonical MCP Write Gate (`CiteStudio --mcp`)
 Runs a JSON-RPC 2.0 MCP server over `stdin`/`stdout` exposing 6 tools:
@@ -141,7 +141,7 @@ The following items are **not implemented in M0** and should not be relied upon 
 - **GUI Local Project Workspace (`M3`)**: Opening user `.tex` / `.typ` / `.bib` folders from `File -> Open…`, saving edits back to disk, and `FSEvents` live reload.
 - **GUI Bidirectional SyncTeX Navigation (`M3`)**: Clicking a line in the SwiftUI editor to jump to the compiled PDF coordinate, or `⌘`-clicking the PDF preview to jump back to the source line (`SyncTeXMapper` currently exists only as a library parser).
 - **CLI/MCP PDF Indexing Entry Point & Sentence-Level Evidence Verification (`M2` / `M3`)**: Indexing `pdfs/*.pdf` from CLI/MCP, splitting passages at sentence granularity with accurate bounding boxes, checking numeric/negation consistency, and highlighting boxes in the GUI PDF pane.
-- **Multi-Candidate Book & No-DOI Resolution (`M1`)**: Scoring top-*N* candidates across Crossref, OpenAlex, Semantic Scholar, and Open Library so classic books without DOIs resolve accurately.
+- **Shared 460-Entry Citation Benchmark & Monograph Registry Fallback (`M1` / `M2`)**: Replay evaluation against the shared ScholarOS 460-entry benchmark dataset (pending dataset creation) and Open Library monograph lookup so pre-DOI books resolve without false negatives.
 
 ---
 

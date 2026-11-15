@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Strict C23 validator for recorded Crossref / OpenAlex fixtures in Tests/Fixtures/recorded/."""
+"""Strict C23/C24 validator for recorded Crossref / OpenAlex fixtures in Tests/Fixtures/recorded/.
+
+Trust Boundary & Known Limitation (C24):
+- This script verifies internal structural and SHA-256 consistency across `manifest.json`,
+  `<slug>.meta.json`, and `<slug>.raw` (catching accidental corruption, partial edits,
+  missing HTTP Date headers, or mailto/email leaks).
+- Because `manifest.json`, `.meta.json`, and `.raw` reside in the same repository without
+  an external cryptographic signature (e.g., TLSNotary), an author who modifies `.raw` AND
+  recomputes `byte_length` + `sha256` in both `.meta.json` and `manifest.json` will still
+  satisfy self-contained checks unless `--expected-manifest-sha256` is pinned against an
+  externally recorded digest (e.g., `29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9`
+  from `m0/honest` `c8298c3`) or verified via `git diff <baseline> -- Tests/Fixtures/recorded/`.
+"""
+
+from __future__ import annotations
 
 import argparse
 import datetime
@@ -26,13 +40,21 @@ def parse_iso_utc(ts: str, field_name: str) -> datetime.datetime:
         raise AssertionError("unreachable")
 
 
-def validate_directory(rec_dir: str, min_items: int) -> None:
+def validate_directory(rec_dir: str, min_items: int, expected_manifest_sha256: str | None = None) -> None:
     if not os.path.isdir(rec_dir):
         fail(f"Directory does not exist: {rec_dir}")
 
     manifest_path = os.path.join(rec_dir, "manifest.json")
     if not os.path.isfile(manifest_path):
         fail(f"Missing manifest.json in {rec_dir}")
+
+    manifest_raw_bytes = open(manifest_path, "rb").read()
+    actual_manifest_sha = hashlib.sha256(manifest_raw_bytes).hexdigest()
+    if expected_manifest_sha256 is not None and actual_manifest_sha != expected_manifest_sha256.lower():
+        fail(
+            f"manifest.json sha256 mismatch against pinned baseline: "
+            f"expected={expected_manifest_sha256.lower()!r} vs actual={actual_manifest_sha!r}"
+        )
 
     try:
         with open(manifest_path, encoding="utf-8") as fh:
@@ -161,8 +183,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate recorded Crossref/OpenAlex fixtures.")
     parser.add_argument("recorded_dir", help="Path to Tests/Fixtures/recorded")
     parser.add_argument("--min-items", type=int, default=20, help="Minimum required fixture items (default: 20)")
+    parser.add_argument(
+        "--expected-manifest-sha256",
+        default=None,
+        help="Optional pinned SHA-256 hex digest of manifest.json to detect synchronized raw+manifest edits",
+    )
     args = parser.parse_args()
-    validate_directory(args.recorded_dir, args.min_items)
+    validate_directory(args.recorded_dir, args.min_items, args.expected_manifest_sha256)
 
 
 if __name__ == "__main__":

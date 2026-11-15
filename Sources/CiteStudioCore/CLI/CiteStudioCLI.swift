@@ -62,8 +62,8 @@ public enum CiteStudioCLI {
 
         case "status":
             let notInstalled = lang == .zhHans ? "未安装" : "not installed"
-            let tec = TectonicRunner.detectBinary()?.path ?? notInstalled
-            let typ = TypstRunner.detectBinary()?.path ?? notInstalled
+            let tec = TectonicRunner.detectBinary(environment: environment)?.path ?? notInstalled
+            let typ = TypstRunner.detectBinary(environment: environment)?.path ?? notInstalled
             let out = lang == .zhHans
                 ? "CiteStudio 0.2.0 | Tectonic: \(tec) | Typst: \(typ)\n"
                 : "CiteStudio 0.2.0 | Tectonic: \(tec) | Typst: \(typ)\n"
@@ -121,8 +121,8 @@ public enum CiteStudioCLI {
             }
             let url = URL(fileURLWithPath: targetPath)
             let res = (url.pathExtension.lowercased() == "typ")
-                ? TypstRunner.compile(typFile: url)
-                : TectonicRunner.compile(texFile: url)
+                ? TypstRunner.compile(typFile: url, environment: environment)
+                : TectonicRunner.compile(texFile: url, environment: environment)
 
             var outLines: [String] = []
             if lang == .zhHans {

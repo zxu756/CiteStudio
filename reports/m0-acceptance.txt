@@ -1,16 +1,16 @@
 ==================================================================
 CiteStudio M0 Acceptance Verification (m0-acceptance.sh)
-Timestamp (UTC): 2026-11-14T20:33:10Z
-Commit / Branch: m0/honest @ 0507646
+Timestamp (UTC): 2026-11-15T04:29:24Z
+Commit / Branch: m1/real @ c8298c3
 Network Policy : Local 127.0.0.1 loopback ONLY (0 external API calls; 0 GUI windows)
 ==================================================================
 [C23] Validating recorded upstream fixtures in Tests/Fixtures/recorded/...
 VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11-14T20:29:06Z completed_at=2026-11-14T20:29:44Z
-[INFO] Local loopback replay/fault server listening at http://127.0.0.1:53985 (recorded_fixtures=1)
+[INFO] Local loopback replay/fault server listening at http://127.0.0.1:64235 (recorded_fixtures=1)
 
 --- Row 1: Offline -> Unverified (0 cached); Online Recorded Replay -> Re-queries ---
 [PASS] Row 1a (Offline): 12/12 Unverified ([Unverified | 未验证]), 0 GhostPaper, 0 SQLite cache rows (exit=1).
-[PASS] Row 1b (Online Recorded Replay): Sent 15 fresh requests and verified real_lecun, real_lstm, real_watson.
+[PASS] Row 1b (Online Recorded Replay): Sent 16 fresh requests and verified real_lecun, real_lstm, real_watson.
 
 --- Row 2: Upstream HTTP 429 / HTTP 500 / Malformed JSON / Timeout -> Unverified (0 cached) ---
   [ok] Fault=429 -> Unverified / [Unverified | 未验证], exit=1, cache_rows=0
@@ -43,7 +43,7 @@ VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11
   wrongtitle             -> CLI=MetadataMismatch | MCP=MetadataMismatch
   wrongyear              -> CLI=MetadataMismatch | MCP=MetadataMismatch
   wrongyear5             -> CLI=MetadataMismatch | MCP=MetadataMismatch
-  real_nodoi             -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  real_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
   fake_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
   retracted_seralini     -> CLI=Retracted        | MCP=Retracted       
   retracted_wakefield    -> CLI=Retracted        | MCP=Retracted       
