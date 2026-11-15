@@ -224,6 +224,10 @@ public enum CiteStudioCLI {
                         "headline": d.localizedHeadline(in: lang),
                         "detail": d.localizedDetail(in: lang)
                     ]
+                    if let rec = d.matchedRecord {
+                        item["matchedVenue"] = rec.venue
+                        item["matchedWorkType"] = rec.displayWorkType(in: lang)
+                    }
                     if let up = d.upgradedBibTeX {
                         item["upgradedBibTeX"] = up
                     }

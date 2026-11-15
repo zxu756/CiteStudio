@@ -138,6 +138,7 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
     public let authors: [String]
     public let year: Int
     public let venue: String
+    public let workType: String?
     public let doi: String?
     public let isRetracted: Bool
     public let publishedUpgradeVenue: String?
@@ -150,6 +151,7 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
         authors: [String],
         year: Int,
         venue: String,
+        workType: String? = nil,
         doi: String? = nil,
         isRetracted: Bool = false,
         publishedUpgradeVenue: String? = nil,
@@ -161,6 +163,7 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
         self.authors = authors
         self.year = year
         self.venue = venue
+        self.workType = workType
         self.doi = doi
         self.isRetracted = isRetracted
         self.publishedUpgradeVenue = publishedUpgradeVenue
@@ -175,12 +178,20 @@ public struct ScholarRecord: Sendable, Equatable, Codable {
             authors: authors,
             year: year,
             venue: venue,
+            workType: workType,
             doi: doi,
             isRetracted: retracted,
             publishedUpgradeVenue: publishedUpgradeVenue,
             publishedUpgradeDOI: publishedUpgradeDOI,
             publishedUpgradeYear: publishedUpgradeYear
         )
+    }
+
+    public func displayWorkType(in language: AppLanguage) -> String {
+        if let raw = workType?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            return raw
+        }
+        return language == .zhHans ? "未知" : "unknown"
     }
 
     public var firstAuthorSurname: String {
@@ -236,7 +247,7 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
         switch kind {
         case .verified:
             if let rec = matchedRecord {
-                return "已通过 \(rec.source) 核验（\(rec.venue), \(rec.year)）"
+                return "已通过 \(rec.source) 核验（\(rec.venue), \(rec.year)，类型：\(rec.displayWorkType(in: .zhHans))）"
             }
             return "已验证引用 (\(citeKey))"
         case .preprintUpgrade:
@@ -265,8 +276,8 @@ public struct CitationDiagnostic: Identifiable, Sendable, Equatable, Codable {
             let doiPart = matchedRecord?.doi.map { "DOI \($0)" } ?? "题名与作者元数据已交叉核实"
             return hasLocalPDFEvidence ? "\(doiPart) · 已建立本地 PDF 索引" : doiPart
         case .preprintUpgrade:
-            if let up = matchedRecord?.publishedUpgradeVenue {
-                return "当前以 arXiv 预印本形式引用；权威索引显示其正式版已发表于 \(up)。"
+            if let rec = matchedRecord, let up = rec.publishedUpgradeVenue {
+                return "当前以 arXiv 预印本形式引用；权威索引显示其正式版已发表于 \(up)（类型：\(rec.displayWorkType(in: .zhHans))）。"
             }
             return detail
         case .metadataMismatch:

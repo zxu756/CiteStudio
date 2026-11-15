@@ -591,6 +591,98 @@ struct FirewallTests {
         #expect(!ScholarTriangulator.firstAuthorSurnamesMatch("", "Robert E. Odeh"))
         #expect(ScholarTriangulator.firstAuthorSurnamesMatch("Strauss, Franz", "Franz Strauß"))
     }
+
+    @Test("CR1: Recorded replay of Odeh book review surfaces matched venue and upstream workType across human/JSON/MCP outputs, and README EN/ZH document untagged book-review limitation")
+    func cr1RecordedOdehBookReviewSurfacesVenueAndWorkTypeAndReadmeDocumentsLimitation() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr1_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr1_cache.sqlite"),
+            transport: transport
+        )
+
+        let odehBib = """
+        @book{odeh_taocp, author = {Odeh, Robert E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, publisher = {Addison-Wesley}, year = {1968}}
+        """
+        let odehEntry = try #require(BibTeXParser.parseBibTeX(odehBib).first)
+        let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: odehEntry, triangulator: triangulator)
+        #expect(diag.kind == .verified)
+        #expect(diag.matchedRecord?.venue == "Journal of the American Statistical Association")
+        #expect(diag.matchedRecord?.workType == "article")
+        #expect(diag.headline.contains("Journal of the American Statistical Association"))
+        #expect(diag.headline.contains("type: article"))
+        #expect(diag.localizedHeadline(in: .zhHans).contains("Journal of the American Statistical Association"))
+        #expect(diag.localizedHeadline(in: .zhHans).contains("类型：article"))
+
+        // Missing upstream workType renders honestly as "unknown" / "未知" (never an invented default)
+        let untypedRecord = ScholarRecord(source: "Crossref", title: "Sample", authors: ["Jane Doe"], year: 2020, venue: "Venue", workType: nil)
+        #expect(untypedRecord.displayWorkType(in: .en) == "unknown")
+        #expect(untypedRecord.displayWorkType(in: .zhHans) == "未知")
+
+        // Recorded Crossref DOI (real_lecun) also populates workType ("journal-article")
+        let lecunEntry = try #require(BibTeXParser.parseBibTeX("""
+        @article{real_lecun, author = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey}, title = {Deep learning}, journal = {Nature}, year = {2015}, doi = {10.1038/nature14539}}
+        """).first)
+        let lecunDiag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: lecunEntry, triangulator: triangulator)
+        #expect(lecunDiag.kind == .verified)
+        #expect(lecunDiag.matchedRecord?.venue == "Nature")
+        #expect(lecunDiag.matchedRecord?.workType == "journal-article")
+
+        // CLI --json and MCP verify_citation must also surface matchedVenue and matchedWorkType
+        let bibURL = tmp.appendingPathComponent("odeh.bib")
+        try odehBib.write(to: bibURL, atomically: true, encoding: .utf8)
+        let cliEnv = [
+            "CITESTUDIO_CROSSREF_BASE_URL": replay.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": replay.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cli_cache").path
+        ]
+        let cliRes = await CiteStudioCLI.run(
+            arguments: ["CiteStudio", "--cli", "verify", bibURL.path, "--json", "--lang", "en"],
+            environment: cliEnv
+        )
+        #expect(cliRes.exitCode == 0)
+        let cliJSON = try #require(try JSONSerialization.jsonObject(with: Data(cliRes.stdout.utf8)) as? [String: Any])
+        let cliEntries = try #require(cliJSON["entries"] as? [[String: Any]])
+        #expect(cliEntries.first?["matchedVenue"] as? String == "Journal of the American Statistical Association")
+        #expect(cliEntries.first?["matchedWorkType"] as? String == "article")
+
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer, language: .en)
+        let mcpReq: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 91,
+            "method": "tools/call",
+            "params": ["name": "verify_citation", "arguments": ["bibtex": odehBib]]
+        ]
+        let mcpRaw = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: mcpReq), encoding: .utf8)!))
+        let mcpRPC = try #require(try JSONSerialization.jsonObject(with: Data(mcpRaw.utf8)) as? [String: Any])
+        let mcpContent = try #require((mcpRPC["result"] as? [String: Any])?["content"] as? [[String: Any]])
+        let mcpText = try #require(mcpContent.first?["text"] as? String)
+        let mcpPayload = try #require(try JSONSerialization.jsonObject(with: Data(mcpText.utf8)) as? [String: Any])
+        #expect(mcpPayload["matchedVenue"] as? String == "Journal of the American Statistical Association")
+        #expect(mcpPayload["matchedWorkType"] as? String == "article")
+
+        // README.md and README.zh-CN.md must explicitly document that untagged book reviews (type: article / journal-article without Book Review: prefix) are treated as the original book when cited with the reviewer's author/year
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+        #expect(readmeEN.contains("Journal of the American Statistical Association"))
+        #expect(readmeEN.contains("treated as the original"))
+        #expect(readmeZH.contains("Journal of the American Statistical Association"))
+        #expect(readmeZH.contains("当成原书"))
+    }
 }
 
 /// Synthetic loopback HTTP server testing C5 candidate filtering (year diff 0/1/2, author mismatch, multi-candidate top-3, book-review rejection, and DOI regression).

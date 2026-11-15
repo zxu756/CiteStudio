@@ -47,7 +47,9 @@
    - **`Unverified`（未验证）不写入本地 SQLite 缓存**，也不会归入 `GhostPaper`。网络恢复后再次运行会立即重新请求上游。
    - SQLite 缓存条目带有明确的过期时间（TTL）：命中记录默认缓存 `7 天`，确认不存在记录默认采用更短的 `24 小时` TTL；读取时自动剔除过期缓存，也可执行 `--cli clear-cache` 手动清空。
 
-> **当前已知局限**：Crossref 与 OpenAlex 主要收录期刊与会议论文，对早期无 DOI 专著、学位论文及技术报告覆盖有限。对于 Knuth 1968 *The Art of Computer Programming* 这类在上游检索结果中仅出现他人书评（如 `Odeh` 1969、`MacLaren` 1969、`Wells` 1973）的无 DOI 专著，`C5` 候选过滤会排除作者/年份/书评类型不符的条目并返回“未在 Crossref / OpenAlex 中查到匹配记录”（`GhostPaper` / `NOT FOUND`，不再误报 `MetadataMismatch`），在接入 Open Library 等图书源前不会自动放行。
+> **当前已知局限**：
+> - **早期无 DOI 专著未被收录**：Crossref 与 OpenAlex 主要收录期刊与会议论文，对早期无 DOI 专著、学位论文及技术报告覆盖有限。对于 Knuth 1968 *The Art of Computer Programming* 这类在上游检索结果中仅出现他人书评（如 `Odeh` 1969、`MacLaren` 1969、`Wells` 1973）的无 DOI 专著，`C5` 候选过滤会排除作者/年份/书评类型不符的条目并返回“未在 Crossref / OpenAlex 中查到匹配记录”（`GhostPaper` / `NOT FOUND`，不再误报 `MetadataMismatch`），在接入 Open Library 等图书源前不会自动放行。
+> - **未标为 `book-review` 的书评在写成书评作者时会被当成原书放行**：不少期刊书评在 OpenAlex 中类型为普通 `article`（Crossref 中为 `journal-article`）且标题不带 `"Book Review:"` 前缀（例如 *Journal of the American Statistical Association* 1969 年 Robert E. Odeh 对 *The Art of Computer Programming* 的书评，OpenAlex `"type"` 为 `"article"`）。仅靠类型与标题前缀无法拦截这类记录：若输入引文恰好将作者写成书评人（如 `Odeh`）且年份差在 `±1` 以内，该书评会被当成原书判为 `Verified`。为此，产品在命令行、JSON（`matchedVenue` / `matchedWorkType`）、MCP 与界面诊断中均显式列出命中记录的刊物与上游类型（缺失时显示“未知”）。
 
 ### 2. MCP 权威元数据写入门禁（`CiteStudio --mcp`）
 通过标准输入/输出（`stdio`）运行 JSON-RPC 2.0 MCP 服务，提供 6 个工具：

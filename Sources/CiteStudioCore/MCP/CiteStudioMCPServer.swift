@@ -72,14 +72,19 @@ public final class CiteStudioMCPServer: @unchecked Sendable {
                 return encodeToolResult(id: id, isError: true, text: "ERR_INVALID_BIBTEX: Could not parse BibTeX stanza.")
             }
             let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
-            return encodeToolJSON(id: id, isError: diag.kind.isBlockingForMCP, payload: [
+            var payload: [String: Any] = [
                 "citeKey": diag.citeKey,
                 "verdict": diag.kind.rawValue,
                 "badge": diag.kind.badgeLabel(in: language),
                 "headline": diag.localizedHeadline(in: language),
                 "detail": diag.localizedDetail(in: language),
                 "upgradedBibTeX": diag.upgradedBibTeX as Any
-            ])
+            ]
+            if let rec = diag.matchedRecord {
+                payload["matchedVenue"] = rec.venue
+                payload["matchedWorkType"] = rec.displayWorkType(in: language)
+            }
+            return encodeToolJSON(id: id, isError: diag.kind.isBlockingForMCP, payload: payload)
 
         case "add_verified_bibtex":
             let bibPath = (args["bib_file"] as? String) ?? ""

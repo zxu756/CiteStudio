@@ -387,6 +387,8 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         let year = (work["publication_year"] as? Int) ?? 0
         let isRetracted = ((work["is_retracted"] as? Bool) ?? false) || hasRetractedTitlePrefix(foundTitle)
         let doi = BibTeXParser.normalizeDOI(work["doi"] as? String)
+        let rawWorkType = (work["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workType = (rawWorkType?.isEmpty == false) ? rawWorkType : nil
 
         var authors: [String] = []
         if let auths = work["authorships"] as? [[String: Any]] {
@@ -422,6 +424,7 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
             authors: authors,
             year: year,
             venue: venue,
+            workType: workType,
             doi: doi,
             isRetracted: isRetracted,
             publishedUpgradeVenue: isVenuePeerReviewed ? venue : nil,
@@ -460,6 +463,8 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
         let rawVenue = containers?.first ?? ((msg["publisher"] as? String) ?? "Crossref")
         let venue = sanitizeUpstreamText(rawVenue)
         let doi = BibTeXParser.normalizeDOI(msg["DOI"] as? String)
+        let rawWorkType = (msg["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workType = (rawWorkType?.isEmpty == false) ? rawWorkType : nil
 
         let updateTo = msg["update-to"] as? [[String: Any]] ?? []
         let updatedBy = msg["updated-by"] as? [[String: Any]] ?? []
@@ -481,6 +486,7 @@ public struct PublicScholarHTTPTransport: ScholarLookupTransport {
             authors: authors,
             year: year,
             venue: venue,
+            workType: workType,
             doi: doi,
             isRetracted: isRetracted,
             publishedUpgradeVenue: peerReviewed ? venue : nil,
@@ -733,7 +739,7 @@ public final class ScholarTriangulator: @unchecked Sendable {
             return false
         }
 
-        let normType = (upstreamWorkType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normType = (upstreamWorkType ?? record.workType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lowerCandTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lowerCitedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let candidateIsBookReview = normType == "book-review"

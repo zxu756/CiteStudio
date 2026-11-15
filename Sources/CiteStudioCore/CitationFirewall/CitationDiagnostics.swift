@@ -59,14 +59,16 @@ public enum CitationDiagnosticsEngine {
             }
 
         case .found(let record):
+            let typeEn = record.displayWorkType(in: .en)
+            let typeZh = record.displayWorkType(in: .zhHans)
             if record.isRetracted {
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .retracted,
                     headline: "Retracted publication (\(entry.citeKey))",
-                    detail: "Indexed by \(record.source) with an official retraction notice (\(record.venue), \(record.year)).",
+                    detail: "Indexed by \(record.source) with an official retraction notice (\(record.venue), \(record.year), type: \(typeEn)).",
                     headlineZh: "已撤稿文献告警 (\(entry.citeKey))",
-                    detailZh: "\(record.source) 记录显示该文献已正式撤稿（\(record.venue), \(record.year)），严禁引用。",
+                    detailZh: "\(record.source) 记录显示该文献已正式撤稿（\(record.venue), \(record.year)，类型：\(typeZh)），严禁引用。",
                     matchedRecord: record,
                     upgradedBibTeX: nil,
                     lineNumbers: lineNumbers,
@@ -102,7 +104,7 @@ public enum CitationDiagnosticsEngine {
                     citeKey: entry.citeKey,
                     kind: .preprintUpgrade,
                     headline: "Peer-reviewed version available (\(upVenue) \(record.publishedUpgradeYear ?? record.year))",
-                    detail: "Currently cited as arXiv preprint; official version published in \(upVenue).",
+                    detail: "Currently cited as arXiv preprint; official version published in \(upVenue) (type: \(typeEn)).",
                     matchedRecord: record,
                     upgradedBibTeX: upgraded,
                     lineNumbers: lineNumbers,
@@ -121,11 +123,13 @@ public enum CitationDiagnosticsEngine {
                 if yearDrift > 1, let by = entry.year {
                     issues.append("year \(by) != \(record.year)")
                 }
+                let joinedIssues = issues.joined(separator: "; ")
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .metadataMismatch,
                     headline: "Metadata mismatch against \(record.source) (\(entry.citeKey))",
-                    detail: "Discrepancy detected: \(issues.joined(separator: "; ")).",
+                    detail: "Discrepancy detected: \(joinedIssues) (matched: \(record.venue), \(record.year), type: \(typeEn)).",
+                    detailZh: "检测到元数据不一致：\(joinedIssues)（命中记录：\(record.venue), \(record.year)，类型：\(typeZh)）。",
                     matchedRecord: record,
                     upgradedBibTeX: BibTeXParser.formatCanonicalBibTeX(entry: entry, record: record),
                     lineNumbers: lineNumbers,
@@ -136,7 +140,7 @@ public enum CitationDiagnosticsEngine {
             return CitationDiagnostic(
                 citeKey: entry.citeKey,
                 kind: .verified,
-                headline: "Verified via \(record.source) (\(record.venue), \(record.year))",
+                headline: "Verified via \(record.source) (\(record.venue), \(record.year), type: \(typeEn))",
                 detail: record.doi.map { "DOI: \($0)" } ?? "Title & author metadata verified.",
                 matchedRecord: record,
                 upgradedBibTeX: nil,
