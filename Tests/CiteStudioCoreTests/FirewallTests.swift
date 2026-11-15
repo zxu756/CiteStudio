@@ -656,6 +656,53 @@ struct FirewallTests {
             upstreamWorkType: wakefieldRecord.workType
         ))
     }
+
+    @Test("CR4: Recorded replay confirms first-author-only comparison rejects second-author citations, and README EN/ZH Known Limitations document this")
+    func cr4FirstAuthorOnlyComparisonLimitationIsDocumented() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr4_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr4_cache.sqlite"),
+            transport: transport
+        )
+
+        // 1. DOI-less title search: OpenAlex recorded candidate [0] (1969) lists ["Robert E. Odeh", "Donald E. Knuth"]
+        //    (Knuth is the 2nd author). Because isMatchingTitleSearchCandidate only compares authors.first, citing Knuth (1969) returns GhostPaper (not found).
+        let secondAuthorNoDOI = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr4_second_author_nodoi, author = {Knuth, Donald E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, journal = {JASA}, year = {1969}}
+        """).first)
+        let diagNoDOI = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: secondAuthorNoDOI, triangulator: triangulator)
+        #expect(diagNoDOI.kind == .ghostPaper)
+
+        // 2. Explicit DOI lookup: recorded 10.1162/neco.1997.9.8.1735 lists ["Sepp Hochreiter", "Jürgen Schmidhuber"].
+        //    Citing 2nd author Schmidhuber first triggers MetadataMismatch because CitationDiagnosticsEngine only compares authors.first.
+        let secondAuthorDOI = try #require(BibTeXParser.parseBibTeX(#"""
+        @article{cr4_second_author_doi, author = {Schmidhuber, J{\"u}rgen}, title = {Long Short-Term Memory}, journal = {Neural Computation}, year = {1997}, doi = {10.1162/neco.1997.9.8.1735}}
+        """#).first)
+        let diagDOI = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: secondAuthorDOI, triangulator: triangulator)
+        #expect(diagDOI.kind == .metadataMismatch)
+
+        // 3. README.md and README.zh-CN.md Known Limitations must document that only the first author is compared
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+        #expect(readmeEN.contains("second author") || readmeEN.contains("second (or later) author"))
+        #expect(readmeEN.contains("only compares the first author") || readmeEN.contains("First-author-only comparison"))
+        #expect(readmeZH.contains("只比对第一作者"))
+        #expect(readmeZH.contains("第二作者"))
+    }
 }
 
 /// 合成（Synthetic）手写最小响应辅助服务器：仅用于测试 OpenAlex `{"results": [...]}` 包装格式分支。
