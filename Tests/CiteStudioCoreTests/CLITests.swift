@@ -694,4 +694,190 @@ struct CLITests {
         #expect(mcpAddFakeDOI["notFoundReason"] as? String == "doi_not_found_in_crossref_and_openalex")
         #expect(try String(contentsOf: outBib, encoding: .utf8).isEmpty)
     }
+
+    @Test("CR5: README.md and README.zh-CN.md Known Limitations state that notFoundReason only reflects whether input has a DOI and cannot distinguish unindexed real books from fabricated references")
+    func cr5ReadmeKnownLimitationsStateNotFoundReasonOnlyReflectsDOIPresence() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+
+        let enStart = try #require(readmeEN.range(of: "> **Current Limitations**:"))
+        let enEnd = try #require(readmeEN.range(of: "\n### 2.", range: enStart.upperBound..<readmeEN.endIndex))
+        let enLimitations = String(readmeEN[enStart.lowerBound..<enEnd.lowerBound])
+
+        let zhStart = try #require(readmeZH.range(of: "> **当前已知局限**："))
+        let zhEnd = try #require(readmeZH.range(of: "\n### 2.", range: zhStart.upperBound..<readmeZH.endIndex))
+        let zhLimitations = String(readmeZH[zhStart.lowerBound..<zhEnd.lowerBound])
+
+        #expect(zhLimitations.contains("notFoundReason"))
+        #expect(zhLimitations.contains("`notFoundReason` 只反映输入有没有 DOI（有 DOI 且两库都查不到 / 没有 DOI 且查不到）。一本没被 Crossref 和 OpenAlex 收录的真书，和一条编造的文献，得到的是同一个值，产品没有依据区分这两种情况。"))
+
+        #expect(enLimitations.contains("notFoundReason"))
+        #expect(enLimitations.contains("`notFoundReason` only reflects whether the input has a DOI (has a DOI and is not found in both registries / has no DOI and is not found). A real book not indexed by Crossref and OpenAlex and a fabricated reference receive the same value, and the product has no basis to distinguish between these two cases."))
+
+        #expect(!readmeEN.contains("`notFoundReason` distinguishes"))
+        #expect(!readmeZH.contains("`notFoundReason` 区分"))
+    }
+
+    @Test("Acceptance --record sanitizer scrubs host username, home dir, temp dir, and compiler paths, and tracked reports/*.txt match current suite")
+    func acceptanceRecordSanitizerScrubsHostInfoAndTrackedReportsMatchCurrentSuite() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_scrub_\(UUID().uuidString)")
+        let customHome = tmp.appendingPathComponent("custom_home")
+        let customTmp = tmp.appendingPathComponent("custom_tmpdir")
+        try FileManager.default.createDirectory(at: customHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: customTmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        var hostUser = ""
+        var hostHome = ""
+        if let pw = Darwin.getpwuid(Darwin.getuid()) {
+            hostUser = String(cString: pw.pointee.pw_name)
+            hostHome = String(cString: pw.pointee.pw_dir)
+        }
+
+        let sampleInput = """
+        Host account: \(hostUser) and alice_host_user
+        Host home path: \(hostHome)/Library/Caches/CiteStudio
+        Caller home path: \(customHome.path)/.config/citestudio
+        Inner mktemp path: \(customTmp.path)/citestudio-m1.INNER999/cache
+        Custom TMPDIR path: \(customTmp.path)/nested/file.txt
+        macOS var folders: /var/folders/ab/cd12345/T/citestudio-readme.XYZ123/ws
+        Private tmp path: /private/tmp/citestudio-m0-acc.777/db.sqlite
+        Repo file path: \(repoRoot.path)/Sources/CiteStudioCore/CLI/CiteStudioCLI.swift
+        CLI status: CiteStudio 0.2.0 | Tectonic: /opt/homebrew/bin/tectonic | Typst: /usr/local/bin/typst
+        Xcode compiler: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc
+        CLT compiler: /Library/Developer/CommandLineTools/usr/bin/clang
+        Keep GitHub handle: https://github.com/zxu756/CiteStudio.git
+        Keep missing test path: --cli lint /nonexistent.tex
+        """
+
+        let scripts = [
+            "Scripts/acceptance/m0-acceptance.sh",
+            "Scripts/acceptance/m1-acceptance.sh",
+            "Scripts/acceptance/readme-commands.sh"
+        ]
+
+        for relScript in scripts {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+            proc.arguments = [repoRoot.appendingPathComponent(relScript).path, "--scrub-stdin"]
+            var env = ProcessInfo.processInfo.environment
+            env["HOME"] = customHome.path
+            env["TMPDIR"] = customTmp.path
+            env["USER"] = "alice_host_user"
+            env["LOGNAME"] = "alice_host_user"
+            proc.environment = env
+
+            let inPipe = Pipe()
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            proc.standardInput = inPipe
+            proc.standardOutput = outPipe
+            proc.standardError = errPipe
+
+            try proc.run()
+            inPipe.fileHandleForReading.closeFile()
+            inPipe.fileHandleForWriting.write(Data(sampleInput.utf8))
+            inPipe.fileHandleForWriting.closeFile()
+            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+
+            let scrubbed = String(data: outData, encoding: .utf8) ?? ""
+            let stderrStr = String(data: errData, encoding: .utf8) ?? ""
+            #expect(proc.terminationStatus == 0, "\(relScript) --scrub-stdin failed (\(proc.terminationStatus)): \(stderrStr)")
+            #expect(scrubbed.contains("CiteStudio 0.2.0 | Tectonic: <COMPILER_PATH> | Typst: <COMPILER_PATH>"))
+            #expect(scrubbed.contains("Xcode compiler: <COMPILER_PATH>"))
+            #expect(scrubbed.contains("CLT compiler: <COMPILER_PATH>"))
+            #expect(scrubbed.contains("Inner mktemp path: <TMP_DIR>"))
+            #expect(scrubbed.contains("Custom TMPDIR path: <TMP_DIR>"))
+            #expect(scrubbed.contains("macOS var folders: <TMP_DIR>"))
+            #expect(scrubbed.contains("Private tmp path: <TMP_DIR>"))
+            #expect(scrubbed.contains("Host home path: <HOME>"))
+            #expect(scrubbed.contains("Caller home path: <HOME>"))
+            #expect(scrubbed.contains("Repo file path: <REPO_ROOT>/Sources/CiteStudioCore/CLI/CiteStudioCLI.swift"))
+            #expect(scrubbed.contains("https://github.com/zxu756/CiteStudio.git"))
+            #expect(scrubbed.contains("--cli lint /nonexistent.tex"))
+
+            #expect(!scrubbed.contains("alice_host_user"))
+            #expect(!scrubbed.contains(customHome.path))
+            #expect(!scrubbed.contains(customTmp.path))
+            #expect(!scrubbed.contains("citestudio-m1.INNER999"))
+            #expect(!scrubbed.contains("/opt/homebrew/"))
+            #expect(!scrubbed.contains("/usr/local/bin/typst"))
+            #expect(!scrubbed.contains("/Applications/Xcode.app"))
+            #expect(!scrubbed.contains("/Library/Developer/"))
+            if !hostHome.isEmpty {
+                #expect(!scrubbed.contains(hostHome))
+            }
+            if !hostUser.isEmpty {
+                let userRegex = try NSRegularExpression(
+                    pattern: "(?<![A-Za-z0-9_.-])\(NSRegularExpression.escapedPattern(for: hostUser))(?![A-Za-z0-9_.-])"
+                )
+                let matches = userRegex.numberOfMatches(in: scrubbed, range: NSRange(scrubbed.startIndex..., in: scrubbed))
+                #expect(matches == 0, "Host username leaked in \(relScript) scrubbed output:\n\(scrubbed)")
+            }
+        }
+
+        let reportsDir = repoRoot.appendingPathComponent("reports")
+        let reportFiles = ["m0-acceptance.txt", "m1-acceptance.txt", "readme-commands.txt"]
+        var contentsByName: [String: String] = [:]
+        for name in reportFiles {
+            let text = try String(contentsOf: reportsDir.appendingPathComponent(name), encoding: .utf8)
+            contentsByName[name] = text
+
+            #expect(!text.contains("/Users/"), "\(name) leaked /Users/ path")
+            #expect(!text.contains("/home/"), "\(name) leaked /home/ path")
+            #expect(!text.contains("/var/folders/"), "\(name) leaked /var/folders/ temp path")
+            #expect(!text.contains("/private/var/folders/"), "\(name) leaked /private/var/folders/ temp path")
+            #expect(!text.contains("/private/tmp/"), "\(name) leaked /private/tmp/ temp path")
+            #expect(!text.contains("/tmp/"), "\(name) leaked /tmp/ temp path")
+            #expect(!text.contains("citestudio-m0"), "\(name) leaked citestudio-m0 temp dir")
+            #expect(!text.contains("citestudio-m1"), "\(name) leaked citestudio-m1 temp dir")
+            #expect(!text.contains("citestudio-readme"), "\(name) leaked citestudio-readme temp dir")
+            #expect(!text.contains("citestudio-test"), "\(name) leaked citestudio-test temp dir")
+            #expect(!text.contains("/opt/homebrew/"), "\(name) leaked /opt/homebrew/ compiler path")
+            #expect(!text.contains("/usr/local/"), "\(name) leaked /usr/local/ compiler path")
+            #expect(!text.contains("/Applications/Xcode"), "\(name) leaked Xcode compiler path")
+            #expect(!text.contains("/Library/Developer/"), "\(name) leaked Developer toolchain path")
+            #expect(!text.contains("Tectonic: /"), "\(name) leaked local Tectonic binary path")
+            #expect(!text.contains("Typst: /"), "\(name) leaked local Typst binary path")
+
+            if !hostHome.isEmpty {
+                #expect(!text.contains(hostHome), "\(name) leaked host HOME")
+            }
+            if !hostUser.isEmpty {
+                let userRegex = try NSRegularExpression(
+                    pattern: "(?<![A-Za-z0-9_.-])\(NSRegularExpression.escapedPattern(for: hostUser))(?![A-Za-z0-9_.-])"
+                )
+                let matches = userRegex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+                #expect(matches == 0, "\(name) leaked host username token")
+            }
+        }
+
+        let m1Report = try #require(contentsByName["m1-acceptance.txt"])
+        #expect(m1Report.contains("M1_ACCEPTANCE_SUMMARY: total=5 passed=3 skipped=2"))
+        #expect(m1Report.contains("[INFO · 合成 / Synthetic — 不算 C5 的证据]"))
+        #expect(m1Report.contains("4 M1 Guards"))
+        #expect(m1Report.contains("All 4 mutations"))
+        #expect(!m1Report.contains("total=6 passed=4"))
+        #expect(!m1Report.contains("[PASS] C5 Part B"))
+        #expect(!m1Report.contains("3 M1 Guards"))
+        #expect(!m1Report.contains("c8298c3"))
+
+        let m0Report = try #require(contentsByName["m0-acceptance.txt"])
+        #expect(m0Report.contains("M0_ACCEPTANCE_SUMMARY: total=13 passed=13 skipped=0"))
+        #expect(!m0Report.contains("c8298c3"))
+
+        let readmeReport = try #require(contentsByName["readme-commands.txt"])
+        #expect(readmeReport.contains("README_REPLAY_SUMMARY: total=16 passed=10 skipped=6"))
+    }
 }

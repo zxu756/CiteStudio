@@ -1,6 +1,6 @@
 ==================================================================
 CiteStudio README Command Replay (readme-commands.sh)
-Timestamp (UTC): 2026-11-15T04:30:12Z
+Timestamp (UTC): 2026-11-15T19:39:04Z
 ==================================================================
 [PASS] Extracted 16 commands from README.md and README.zh-CN.md (100% parity).
 [PASS] C23 validator: VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11-14T20:29:06Z completed_at=2026-11-14T20:29:44Z
@@ -19,7 +19,7 @@ Timestamp (UTC): 2026-11-15T04:30:12Z
   [SKIPPED] Parent M0 orchestrator command (already invoking readme-commands.sh; avoids recursion).
 
 [5/16] $ .build/debug/CiteStudio --cli status
-  stdout: CiteStudio 0.2.0 | Tectonic: /opt/homebrew/bin/tectonic | Typst: not installed
+  stdout: CiteStudio 0.2.0 | Tectonic: <COMPILER_PATH> | Typst: not installed
   [PASS] exit=0, matched 'CiteStudio 0.2.0 | Tectonic: ... | Typst: ...' (locale=en).
 
 [6/16] $ .build/debug/CiteStudio --cli verify path/to/references.bib
@@ -51,7 +51,7 @@ Timestamp (UTC): 2026-11-15T04:30:12Z
   [SKIPPED] CITESTUDIO_REAL_TECTONIC!=1; real tectonic compilation requires external TeX bundle cache / network (C18 / General Rule §4).
 
 [14/16] $ printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | .build/debug/CiteStudio --mcp
-  stdout: {"id":1,"result":{"tools":[{"description":"Verify a BibTeX entry against Crossref, OpenAlex, and local SQLite cache.","name":"verify_citation","inputSchema":{"required":["bibtex"],"type":"object","properties":{"bibtex":{"type":"string"}}}},{"inputSchema":{"properties":{"bibtex":{"type":"string"},"bib_file":{"type":"string"}},"required":["bib_file","bibtex"],"type":"object"},"description":"Append canonical BibTeX metadata to a .bib file ONLY if verified against Crossref \/ OpenAlex (returns ERR_UNVERIFIED_CITATION on ghost, mismatched, retracted, or unverified entries).","name":"add_verified_bibtex"},{"description":"BM25 search across pre-indexed PDF passages in pdf_fts5.sqlite (note: no CLI\/MCP indexing tool is exposed yet; returns empty unless populated via LocalPDFIndexer).","inputSchema":{"required":["query"],"properties":{"query":{"type":"string"},"cite_key":{"type":"string"}},"type":"object"},"name":"search_local_pdfs"},{"description":"Keyword BM25 lookup against pre-indexed PDF text blocks in pdf_fts5.sqlite (returns coarse block\/page bounds without numeric or negation verification; requires pre-populated index).","inputSchema":{"type":"object","properties":{"cite_key":{"type":"string"},"claim_sentence":{"type":"string"}},"required":["claim_sentence","cite_key"]},"name":"get_claim_evidence"},{"inputSchema":{"properties":{"manuscript_text":{"type":"string"}},"required":["manuscript_text"],"type":"object"},"description":"Run deterministic writing-anti-ai and paper-polish checks on LaTeX\/Typst prose.","name":"audit_manuscript"},{"description":"Compile a .tex or .typ file using local Tectonic or Typst.","inputSchema":{"properties":{"source_file":{"type":"string"}},"required":["source_file"],"type":"object"},"name":"compile_pdf"}]},"jsonrpc":"2.0"}
+  stdout: {"id":1,"result":{"tools":[{"name":"verify_citation","description":"Verify a BibTeX entry against Crossref, OpenAlex, and local SQLite cache.","inputSchema":{"required":["bibtex"],"type":"object","properties":{"bibtex":{"type":"string"}}}},{"name":"add_verified_bibtex","description":"Append canonical BibTeX metadata to a .bib file ONLY if verified against Crossref \/ OpenAlex (returns ERR_UNVERIFIED_CITATION on ghost, mismatched, retracted, or unverified entries).","inputSchema":{"properties":{"bib_file":{"type":"string"},"bibtex":{"type":"string"}},"required":["bib_file","bibtex"],"type":"object"}},{"name":"search_local_pdfs","description":"BM25 search across pre-indexed PDF passages in pdf_fts5.sqlite (note: no CLI\/MCP indexing tool is exposed yet; returns empty unless populated via LocalPDFIndexer).","inputSchema":{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"cite_key":{"type":"string"}}}},{"description":"Keyword BM25 lookup against pre-indexed PDF text blocks in pdf_fts5.sqlite (returns coarse block\/page bounds without numeric or negation verification; requires pre-populated index).","inputSchema":{"properties":{"claim_sentence":{"type":"string"},"cite_key":{"type":"string"}},"type":"object","required":["claim_sentence","cite_key"]},"name":"get_claim_evidence"},{"name":"audit_manuscript","inputSchema":{"properties":{"manuscript_text":{"type":"string"}},"type":"object","required":["manuscript_text"]},"description":"Run deterministic writing-anti-ai and paper-polish checks on LaTeX\/Typst prose."},{"name":"compile_pdf","description":"Compile a .tex or .typ file using local Tectonic or Typst.","inputSchema":{"required":["source_file"],"type":"object","properties":{"source_file":{"type":"string"}}}}]},"jsonrpc":"2.0"}
   [PASS] exit=0, verified all 6 MCP tools: ['add_verified_bibtex', 'audit_manuscript', 'compile_pdf', 'get_claim_evidence', 'search_local_pdfs', 'verify_citation'].
 
 [15/16] $ .build/debug/CiteStudio

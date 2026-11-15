@@ -1,7 +1,7 @@
 ==================================================================
 CiteStudio M1 Acceptance Suite (m1-acceptance.sh)
-Timestamp (UTC): 2026-11-15T04:29:57Z
-Commit / Branch: m1/real @ c8298c3
+Timestamp (UTC): 2026-11-15T19:37:22Z
+Commit / Branch: m1/rework @ 4ace54c
 Offline Proxy Guard: HTTP_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost
 ==================================================================
 ==> Building debug binary (CiteStudio)...
@@ -26,28 +26,29 @@ VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11
   fake_nodoi             -> CLI=GhostPaper       | MCP=GhostPaper      
   retracted_seralini     -> CLI=Retracted        | MCP=Retracted       
   retracted_wakefield    -> CLI=Retracted        | MCP=Retracted       
-[PASS] C5 Part A (Recorded Replay): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion.
+[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering the 2 recorded DOI-less titles real_nodoi & fake_nodoi): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion.
 
---- M1 Item 3 (C5 Part B): Synthetic Loopback Edge Matrix (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---
-  [synthetic edge] nodoi_knuth_diff0        -> Verified
-  [synthetic edge] nodoi_knuth_diff1        -> Verified
-  [synthetic edge] nodoi_knuth_diff2        -> GhostPaper
-  [synthetic edge] nodoi_author_mismatch    -> GhostPaper
-  [synthetic edge] nodoi_book_review_only   -> GhostPaper
-  [synthetic edge] doi_year_diff5           -> MetadataMismatch
-  [synthetic edge] doi_wrong_title          -> MetadataMismatch
-[PASS] C5 Part B (Synthetic Loopback Edge Matrix): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper (not MetadataMismatch, blocked from .bib), DOI Δyear=5 & wrong title -> MetadataMismatch.
+--- M1 Item 3 (C5 Part B · 合成 / Synthetic — 不算 C5 的证据): Handwritten Loopback Sanity Check (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff0        -> Verified
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff1        -> Verified
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff2        -> GhostPaper
+  [合成 / synthetic, non-evidence] nodoi_author_mismatch    -> GhostPaper
+  [合成 / synthetic, non-evidence] nodoi_book_review_only   -> GhostPaper
+  [合成 / synthetic, non-evidence] doi_year_diff5           -> MetadataMismatch
+  [合成 / synthetic, non-evidence] doi_wrong_title          -> MetadataMismatch
+[INFO · 合成 / Synthetic — 不算 C5 的证据] C5 Part B (Handwritten Loopback Sanity Check — 手写合成响应正文，不算 C5 的证据，C5 的结论仅按 Part A 已录制的两个标题计；本段不计入 passed): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper, DOI Δyear=5 & wrong title -> MetadataMismatch.
 
 --- C24: Actual Swift Testing Skip Output (PATH without tectonic) & Recorded Fixture Immutability ---
-[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; Tests/Fixtures/recorded/ has 0 diff vs m0/honest (manifest SHA-256=29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9).
+[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; Tests/Fixtures/recorded/ has 0 diff vs origin/m0/honest (manifest SHA-256=29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9).
 
---- Scripted Mutation Verification (3 M1 Guards: C5 Year, C5 Author, C24 Skip Trait) ---
-  [ok] M1_C5_DisableYearDriftGuard: compiled cleanly -> failed named test 'FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
-  [ok] M2_C5_DisableFirstAuthorSurnameGuard: compiled cleanly -> failed named test 'FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+--- Scripted Mutation Verification (4 M1 Guards: C5 Year, C5 Author, C24 Skip Trait, CR2 Similarity 0.78->0.30) ---
+  [ok] M1_C5_DisableYearDriftGuard: compiled cleanly -> failed named test 'SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M2_C5_DisableFirstAuthorSurnameGuard: compiled cleanly -> failed named test 'SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
   [ok] M3_C24_EarlyReturnInsteadOfSkipTrait: compiled cleanly -> failed named test 'CLITests/c21AndC24TectonicTestEmitsActualSkippedFrameworkRecordWhenAbsentOnPath' (exit=1) -> restored Tests/CiteStudioCoreTests/CiteStudioCoreTests.swift
-[PASS] Scripted M1 Mutations: All 3 mutations (C5 year, C5 surname, C24 skip trait) failed their exact named @Test and restored cleanly.
+  [ok] M4_CR2_LowerTitleSimilarity078To030: compiled cleanly -> failed named test 'FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+[PASS] Scripted M1 Mutations: All 4 mutations (C5 year, C5 surname, C24 skip trait, CR2 title similarity 0.78->0.30) failed their exact named @Test and restored cleanly.
 
 ==================================================================
-M1_ACCEPTANCE_SUMMARY: total=6 passed=4 skipped=2 exit_code=0 elapsed_sec=15 (skipped items NOT counted as passed)
+M1_ACCEPTANCE_SUMMARY: total=5 passed=3 skipped=2 exit_code=0 elapsed_sec=22 (skipped items NOT counted as passed)
 SKIPPED_ITEMS: M1_Item_1(等评测集) M1_Item_2(等评测集)
 ==================================================================
