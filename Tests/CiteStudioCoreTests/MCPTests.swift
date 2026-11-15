@@ -1,3 +1,6 @@
+// 合成测试响应说明（Synthetic handwritten unit-test HTTP payloads — 不算 C5 的证据）：
+// 本文件中使用 LoopbackScholarServer 的测试返回 TestFixtures.swift 中的合成手写最小 JSON 响应正文，不算 C5 的真实证据。
+
 import Foundation
 import Testing
 @testable import CiteStudioCore
@@ -61,7 +64,7 @@ struct MCPTests {
         #expect(BibTeXParser.parseBibTeX(writtenAfterSecond).count == 1)
     }
 
-    @Test("C2 + C1 MCP Gate: add_verified_bibtex rejects MetadataMismatch (wrong title) and Unverified (offline) without modifying .bib")
+    @Test("合成 (Synthetic HTTP) C2 + C1 MCP Gate: add_verified_bibtex rejects MetadataMismatch (wrong title) and Unverified (offline) without modifying .bib")
     func mcpRejectsWrongTitleAndOfflineUnverified() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_mcp_gate_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -140,7 +143,7 @@ struct MCPTests {
         #expect(unknownMethodResp.contains("-32601"))
     }
 
-    @Test("C5 MCP Gate: add_verified_bibtex blocks DOI-less non-matching book-review candidates with ERR_UNVERIFIED_CITATION and writes .bib untampered")
+    @Test("合成 (Synthetic, 不算 C5 证据) C5 MCP Gate: add_verified_bibtex blocks DOI-less non-matching book-review candidates with ERR_UNVERIFIED_CITATION and writes .bib untampered")
     func c5MCPBlocksNonMatchingNoDOIBookReviewCandidate() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_mcp_c5_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

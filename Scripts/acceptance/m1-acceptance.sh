@@ -309,15 +309,15 @@ for req_id in (101, 102):
     assert "ERR_UNVERIFIED_CITATION" in txt, txt
 assert os.path.getsize(target_bib) == 0, "Target .bib must remain untouched when add_verified_bibtex rejects unverified citations"
 PYEOF
-    echo "[PASS] C5 Part A (Recorded Replay): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion."
+    echo "[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering the 2 recorded DOI-less titles real_nodoi & fake_nodoi): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion."
     ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
-    # M1 ITEM 3 (C5 Part B): Synthetic Loopback Edge Matrix
-    # (Explicitly labeled synthetic edge tests in TMP_ROOT; zero touch to Tests/Fixtures/recorded/)
+    # M1 ITEM 3 (C5 Part B · 合成 / Synthetic — 不算 C5 的证据):
+    # Handwritten Loopback Sanity Check in TMP_ROOT (NOT counted in ACC_PASSED and NOT C5 evidence; zero touch to Tests/Fixtures/recorded/)
     # ------------------------------------------------------------------
     echo ""
-    echo "--- M1 Item 3 (C5 Part B): Synthetic Loopback Edge Matrix (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---"
+    echo "--- M1 Item 3 (C5 Part B · 合成 / Synthetic — 不算 C5 的证据): Handwritten Loopback Sanity Check (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---"
     SYNTH_PORT_FILE="${TMP_ROOT}/synth_c5.port"
     python3 - "${SYNTH_PORT_FILE}" <<'PYEOF' &
 import http.server, json, socketserver, sys, urllib.parse
@@ -494,7 +494,7 @@ expected = {
 }
 for k, exp in expected.items():
     assert vmap[k] == exp, f"Synthetic edge {k}: expected {exp}, got {vmap[k]}"
-    print(f"  [synthetic edge] {k:24s} -> {vmap[k]}")
+    print(f"  [合成 / synthetic, non-evidence] {k:24s} -> {vmap[k]}")
 
 # Only the 2 Verified entries may be written by add_verified_bibtex; the 5 non-verified entries must return ERR_UNVERIFIED_CITATION
 assert "nodoi_knuth_diff0" in written_bib and "nodoi_knuth_diff1" in written_bib, written_bib
@@ -506,8 +506,7 @@ for idx in (1, 2):
 for idx in (3, 4, 5, 6, 7):
     assert "ERR_UNVERIFIED_CITATION" in mcp_lines[idx - 1]["result"]["content"][0]["text"], mcp_lines[idx - 1]
 PYEOF
-    echo "[PASS] C5 Part B (Synthetic Loopback Edge Matrix): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper (not MetadataMismatch, blocked from .bib), DOI Δyear=5 & wrong title -> MetadataMismatch."
-    ACC_PASSED=$((ACC_PASSED + 1))
+    echo "[INFO · 合成 / Synthetic — 不算 C5 的证据] C5 Part B (Handwritten Loopback Sanity Check — 手写合成响应正文，不算 C5 的证据，C5 的结论仅按 Part A 已录制的两个标题计；本段不计入 passed): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper, DOI Δyear=5 & wrong title -> MetadataMismatch."
 
     # ------------------------------------------------------------------
     # C24: Behavioral Test-Framework Skip Output & Recorded Fixture Immutability
@@ -643,8 +642,8 @@ PYEOF
     run_single_mutation \
         "M1_C5_DisableYearDriftGuard" \
         "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
-        "FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview" \
-        "C5: DOI-less title search requires title >= 0.78, |Δyear| <= 1, matching normalized first-author surname, and non-book-review candidate; non-matches return confirmedNotFound rather than MetadataMismatch" \
+        "SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering" \
+        "合成 (Synthetic, 不算 C5 证据) C5: DOI-less title search handwritten candidate filtering for year drift, first-author surname, and book-review rules" \
         "        if let citedYear = entry.year, citedYear > 0, record.year > 0 {
             if abs(citedYear - record.year) > maximumTitleSearchYearDrift {
                 return false
@@ -659,8 +658,8 @@ PYEOF
     run_single_mutation \
         "M2_C5_DisableFirstAuthorSurnameGuard" \
         "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
-        "FirewallTests/c5NoDOITitleSearchRequiresYearAuthorAndNonBookReview" \
-        "C5: DOI-less title search requires title >= 0.78, |Δyear| <= 1, matching normalized first-author surname, and non-book-review candidate; non-matches return confirmedNotFound rather than MetadataMismatch" \
+        "SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering" \
+        "合成 (Synthetic, 不算 C5 证据) C5: DOI-less title search handwritten candidate filtering for year drift, first-author surname, and book-review rules" \
         "        if !citedSurname.isEmpty || !candidateSurname.isEmpty {
             guard !citedSurname.isEmpty,
                   !candidateSurname.isEmpty,

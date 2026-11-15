@@ -1,3 +1,6 @@
+// 合成测试响应说明（Synthetic handwritten unit-test HTTP payloads）：
+// 本文件中使用 LoopbackScholarServer 的单元测试（如 C9、C13+C14）返回手写合成最小 JSON 响应，不算真实上游录制证据。
+
 import Darwin
 import Foundation
 import Testing
@@ -126,7 +129,7 @@ struct CLITests {
         #expect(subUnknown.stderr.contains("未知"))
     }
 
-    @Test("C9 + Item 2: --cli verify <refs.bib> shares firewall engine, exits 0 only when all Verified, exits non-zero otherwise, and --cli clear-cache purges SQLite cache")
+    @Test("合成 (Synthetic HTTP) C9 + Item 2: --cli verify <refs.bib> shares firewall engine, exits 0 only when all Verified, exits non-zero otherwise, and --cli clear-cache purges SQLite cache")
     func c9VerifyCommandAndClearCache() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_v_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -179,7 +182,7 @@ struct CLITests {
         #expect(subVerify.stdout.contains("Verified=1"))
     }
 
-    @Test("C13 + C14: Single PreprintUpgrade exits 1 on --cli verify, default HTTP timeout is 8s, and README EN/ZH match code")
+    @Test("合成 (Synthetic HTTP) C13 + C14: Single PreprintUpgrade exits 1 on --cli verify, default HTTP timeout is 8s, and README EN/ZH match code")
     func c13AndC14VerifyExitCodeTimeoutAndDocConsistency() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cli_c13_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -546,5 +549,48 @@ struct CLITests {
             .write(to: tmp.appendingPathComponent("manifest.json"))
         let blankDateRes = try runValidator(on: tmp, allowCount: 1)
         #expect(blankDateRes.0 != 0)
+    }
+
+    @Test("CR3: Handwritten-body C5 tests carry '合成' in file header and test name, and m1-acceptance.sh Part B states it is synthetic and not C5 evidence")
+    func cr3SyntheticC5TestsAndAcceptancePartBAreExplicitlyMarkedSyntheticNonEvidence() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let synthC5URL = repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/SyntheticC5TitleCandidateTests.swift")
+        #expect(FileManager.default.fileExists(atPath: synthC5URL.path))
+        let synthC5Source = (try? String(contentsOf: synthC5URL, encoding: .utf8)) ?? ""
+        let synthHeader = synthC5Source.components(separatedBy: .newlines).prefix(10).joined(separator: "\n")
+        #expect(synthHeader.contains("合成"))
+        #expect(synthHeader.contains("不算 C5"))
+        #expect(synthC5Source.contains("@Test(\"合成"))
+
+        let firewallSource = try String(
+            contentsOf: repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/FirewallTests.swift"),
+            encoding: .utf8
+        )
+        #expect(!firewallSource.contains("LoopbackC5TitleCandidateServer"))
+        #expect(firewallSource.components(separatedBy: .newlines).prefix(10).joined(separator: "\n").contains("合成"))
+
+        let fixturesHeader = try String(
+            contentsOf: repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/TestFixtures.swift"),
+            encoding: .utf8
+        ).components(separatedBy: .newlines).prefix(10).joined(separator: "\n")
+        #expect(fixturesHeader.contains("合成"))
+
+        let mcpSource = try String(
+            contentsOf: repoRoot.appendingPathComponent("Tests/CiteStudioCoreTests/MCPTests.swift"),
+            encoding: .utf8
+        )
+        #expect(mcpSource.components(separatedBy: .newlines).prefix(10).joined(separator: "\n").contains("合成"))
+        #expect(mcpSource.contains("@Test(\"合成"))
+
+        let m1Script = try String(
+            contentsOf: repoRoot.appendingPathComponent("Scripts/acceptance/m1-acceptance.sh"),
+            encoding: .utf8
+        )
+        #expect(m1Script.contains("不算 C5 的证据"))
+        #expect(m1Script.contains("[INFO · 合成"))
     }
 }

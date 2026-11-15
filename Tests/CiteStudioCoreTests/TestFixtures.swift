@@ -1,6 +1,7 @@
-// NOTE: The JSON payloads in this file are handwritten minimal unit-test JSON fixtures
-// (手写最小单元测试响应) used solely for isolated unit tests in Tests/CiteStudioCoreTests/.
-// M0 acceptance and README command replay use verbatim recorded upstream responses in Tests/Fixtures/recorded/.
+// 合成测试响应说明（Synthetic handwritten unit-test JSON fixtures / 手写最小单元测试响应 — 不算 C5 的证据）：
+// NOTE: The JSON payloads in this file are synthetic handwritten minimal unit-test JSON fixtures
+// (合成 · 手写最小单元测试响应) used solely for isolated unit tests in Tests/CiteStudioCoreTests/, and do NOT count as C5 evidence.
+// M0/M1 real-response acceptance and README command replay use verbatim upstream responses in Tests/Fixtures/recorded/.
 
 import AppKit
 import CoreGraphics
