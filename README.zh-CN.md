@@ -5,9 +5,9 @@
 **面向 LaTeX 与 Typst 的引文核查、撤稿筛查与学术行文体检工具（macOS 原生 Swift 6 + Crossref + OpenAlex + MCP）**
 
 > **版本与能力边界说明（请先阅读）**
-> - **已发布 `v0.2.0`（`main`）与未发布改动（`main / v0.2.0 之后`）**：已发布的 `v0.2.0` 包含 `--cli status`、`--cli lint`、`--cli compile`、`--mcp` 与 `--lang en|zh`。下文中标注 **未发布（`main` / `v0.2.0` 之后）** 的入口与行为——包括 `--cli verify`、`--cli clear-cache`、`--cli help` / `--help`、`--cache-dir`、`--demo`、默认空白桌面工作区，以及 `Unverified`（未验证）与 `GhostPaper`（确认不存在）的三态分离——位于 `main` 之后的开发分支，尚未打标签发布。
-> - **真实用户文件请通过 CLI 与 MCP 处理**：支持命令行核验 `.bib` 参考文献（`--cli verify`，未发布 / `main` 之后）、清理本地核验缓存（`--cli clear-cache`，未发布 / `main` 之后）、检查 `.tex`/`.typ` 行文与图表引用（`--cli lint`）、调用外部编译器生成 PDF（`--cli compile`），以及通过 stdio MCP 服务（`--mcp`）拦截未通过核验的参考文献写入。
-> - **桌面 GUI 当前限制**：不带 `--demo` 启动 `CiteStudio` 桌面窗口时（未发布 / `main` 之后；已发布的 `v0.2.0` 启动即载入内置示例），默认进入干净的**空白工作区**（`0` 字文稿、`0` 条参考文献、`0` 条诊断）。桌面端打开本地任意项目文件夹、编辑器与 PDF 之间的 SyncTeX 双向点击跳转、以及桌面端自动扫描 `pdfs/` 并在 PDF 预览中高亮证据坐标框均属于**计划中、当前尚未实现**的功能（详见文末[计划中（当前未实现）](#计划中当前未实现)）。如需查看界面排版，请点击工具栏 **“载入演示”** 按钮或传入 `--demo` 查看带 **`[DEMO · 演示数据]`** 标识的内置示例。
+> - **已发布 `v0.2.0` 与 `v0.3.0` 起的改动**：已发布的 `v0.2.0` 包含 `--cli status`、`--cli lint`、`--cli compile`、`--mcp` 与 `--lang en|zh`。下文中标注 **v0.3.0 起** 的入口与行为——包括 `--cli verify`、`--cli clear-cache`、`--cli help` / `--help`、`--cache-dir`、`--demo`、默认空白桌面工作区，以及 `Unverified`（未验证）与 `GhostPaper`（确认不存在）的三态分离——自 `v0.3.0` 起提供，`v0.2.0` 没有。
+> - **真实用户文件请通过 CLI 与 MCP 处理**：支持命令行核验 `.bib` 参考文献（`--cli verify`，v0.3.0 起）、清理本地核验缓存（`--cli clear-cache`，v0.3.0 起）、检查 `.tex`/`.typ` 行文与图表引用（`--cli lint`）、调用外部编译器生成 PDF（`--cli compile`），以及通过 stdio MCP 服务（`--mcp`）拦截未通过核验的参考文献写入。
+> - **桌面 GUI 当前限制**：不带 `--demo` 启动 `CiteStudio` 桌面窗口时（v0.3.0 起；已发布的 `v0.2.0` 启动即载入内置示例），默认进入干净的**空白工作区**（`0` 字文稿、`0` 条参考文献、`0` 条诊断）。桌面端打开本地任意项目文件夹、编辑器与 PDF 之间的 SyncTeX 双向点击跳转、以及桌面端自动扫描 `pdfs/` 并在 PDF 预览中高亮证据坐标框均属于**计划中、当前尚未实现**的功能（详见文末[计划中（当前未实现）](#计划中当前未实现)）。如需查看界面排版，请点击工具栏 **“载入演示”** 按钮或传入 `--demo` 查看带 **`[DEMO · 演示数据]`** 标识的内置示例。
 
 ---
 
@@ -31,9 +31,9 @@
 
 ---
 
-## 功能说明（除注明 `v0.2.0` 外均为未发布 / `main` 之后）
+## 功能说明（除注明 `v0.2.0` 外均为 v0.3.0 起）
 
-### 1. 引文核查与三态查询结果分离（`ScholarTriangulator` — 未发布，`main` 之后）
+### 1. 引文核查与三态查询结果分离（`ScholarTriangulator` — v0.3.0 起）
 通过 `URLSession` 查询 **Crossref** 与 **OpenAlex** 文献元数据，并将上游查询结果拆分为三种状态：
 
 1. **已命中记录（`Verified` / `PreprintUpgrade` / `MetadataMismatch` / `Retracted`）**：
@@ -54,12 +54,12 @@
 
 | MCP 工具 | 实际行为与当前限制 |
 | :--- | :--- |
-| `verify_citation` | 对单条 BibTeX 引用执行核验，返回结构化 JSON 诊断结果（`Verified`、`PreprintUpgrade`、`MetadataMismatch`、`Retracted`、`GhostPaper`、`Unverified`；其中 `Unverified` 分离为未发布 / `main` 之后）。 |
-| `add_verified_bibtex` | 写入 `.bib` 前先执行引文核验。遇到 `GhostPaper`、`MetadataMismatch`、`Retracted` 或 `Unverified` 时直接返回 `ERR_UNVERIFIED_CITATION` 并保持目标 `.bib` 不变；当结果为 `Verified` 或 `PreprintUpgrade` 时，**使用上游权威记录的 `title`、`author`、`year`、`journal`/`booktitle`、`doi` 生成规范 BibTeX 条目**（未发布 / `main` 之后），并对已存在的 `citeKey` 去重（`SKIPPED_DUPLICATE_KEY`）。 |
+| `verify_citation` | 对单条 BibTeX 引用执行核验，返回结构化 JSON 诊断结果（`Verified`、`PreprintUpgrade`、`MetadataMismatch`、`Retracted`、`GhostPaper`、`Unverified`；其中 `Unverified` 分离为v0.3.0 起）。 |
+| `add_verified_bibtex` | 写入 `.bib` 前先执行引文核验。遇到 `GhostPaper`、`MetadataMismatch`、`Retracted` 或 `Unverified` 时直接返回 `ERR_UNVERIFIED_CITATION` 并保持目标 `.bib` 不变；当结果为 `Verified` 或 `PreprintUpgrade` 时，**使用上游权威记录的 `title`、`author`、`year`、`journal`/`booktitle`、`doi` 生成规范 BibTeX 条目**（v0.3.0 起），并对已存在的 `citeKey` 去重（`SKIPPED_DUPLICATE_KEY`）。 |
 | `search_local_pdfs` | 基于 SQLite FTS5 BM25 查询 `pdf_fts5.sqlite`。**当前限制**：`--cli` 与 `--mcp` 目前均未提供建立 PDF 索引的命令或工具入口，除非已通过库接口调用 `LocalPDFIndexer.indexPDF` 写入数据，否则新工作区下始终返回空结果。 |
 | `get_claim_evidence` | 基于关键词 BM25 在 `pdf_fts5.sqlite` 中检索相近文本块（不核对数字与否定语气）。**当前限制**：返回的 `rect` 只是按 `\n\n` 粗切分的页面/大文本块级 `PDFKit` 范围（选区失败时回退到固定默认矩形），并非逐行或逐句精确定位框；且当前同样没有 CLI/MCP 建索引入口。 |
 | `audit_manuscript` | 对传入的 LaTeX / Typst 文本执行确定性去 AI 套话与图表引用检查（`WritingQualityLinter`）。 |
-| `compile_pdf` | 调用本机安装的 `tectonic --synctex` 或 `typst compile` 编译指定 `.tex` / `.typ` 文件（文件不存在时返回 `ERR_FILE_NOT_FOUND`，未发布 / `main` 之后；未安装编译器或编译失败时返回诊断信息）。 |
+| `compile_pdf` | 调用本机安装的 `tectonic --synctex` 或 `typst compile` 编译指定 `.tex` / `.typ` 文件（文件不存在时返回 `ERR_FILE_NOT_FOUND`，v0.3.0 起；未安装编译器或编译失败时返回诊断信息）。 |
 
 ### 3. 确定性学术行文与图表规范体检（`WritingQualityLinter` — `v0.2.0` 已含）
 纯本地正则与行级扫描，不调用大模型：
@@ -90,24 +90,24 @@ swift build
 ```
 
 ### CLI 命令行工具（`--cli`）
-所有 `--cli` 子命令与 MCP 服务共用同一套核验与体检引擎，并支持 `--lang zh` / `--lang en`（及 `--cache-dir <目录>`，未发布 / `main` 之后）：
+所有 `--cli` 子命令与 MCP 服务共用同一套核验与体检引擎，并支持 `--lang zh` / `--lang en`（及 `--cache-dir <目录>`，v0.3.0 起）：
 
 ```bash
 # 1. 查看本机外部编译器路径状态（v0.2.0 已含）
 .build/debug/CiteStudio --cli status
 
-# 2. 逐条核验 .bib 文件中的全部参考文献（未发布，main / v0.2.0 之后）
+# 2. 逐条核验 .bib 文件中的全部参考文献（v0.3.0 起）
 #    仅当全部条目严格为 Verified 时退出码为 0；
 #    只要存在任何非 Verified 条目（含 PreprintUpgrade、GhostPaper、MetadataMismatch、Retracted 或 Unverified），退出码均为 1。
 .build/debug/CiteStudio --cli verify path/to/references.bib
 .build/debug/CiteStudio --cli verify path/to/references.bib --json
 .build/debug/CiteStudio --cli verify path/to/references.bib --lang zh
 
-# 3. 清空本地 SQLite 引文核验缓存（未发布，main / v0.2.0 之后）
+# 3. 清空本地 SQLite 引文核验缓存（v0.3.0 起）
 .build/debug/CiteStudio --cli clear-cache
 .build/debug/CiteStudio --cli clear-cache --lang zh
 
-# 4. 对 .tex 或 .typ 文稿运行确定性行文与图表体检（v0.2.0 已含；缺失文件退出码 2 为未发布 / main 之后）
+# 4. 对 .tex 或 .typ 文稿运行确定性行文与图表体检（v0.2.0 已含；缺失文件退出码 2 为v0.3.0 起）
 .build/debug/CiteStudio --cli lint path/to/main.tex
 .build/debug/CiteStudio --cli lint path/to/main.tex --lang zh
 
@@ -117,12 +117,12 @@ swift build
 # 6. 查询 stdio MCP 服务器工具列表（v0.2.0 已含）
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | .build/debug/CiteStudio --mcp
 
-# 7. 启动桌面窗口（默认空白工作区为未发布 / main 之后；加 --demo 载入演示数据）
+# 7. 启动桌面窗口（默认空白工作区为v0.3.0 起；加 --demo 载入演示数据）
 .build/debug/CiteStudio
 .build/debug/CiteStudio --demo --lang zh
 ```
 
-### 环境变量说明（未发布，`main` / `v0.2.0` 之后）
+### 环境变量说明（v0.3.0 起）
 | 环境变量 | 作用 |
 | :--- | :--- |
 | `CITESTUDIO_CACHE_DIR` | 指定 `scholar_cache.sqlite` 与 `pdf_fts5.sqlite` 的存放目录（也可通过 `--cache-dir <路径>` 传入）。 |

@@ -19,8 +19,8 @@ Timestamp (UTC): 2026-11-14T20:33:36Z
   [SKIPPED] Parent M0 orchestrator command (already invoking readme-commands.sh; avoids recursion).
 
 [5/16] $ .build/debug/CiteStudio --cli status
-  stdout: CiteStudio 0.2.0 | Tectonic: /opt/homebrew/bin/tectonic | Typst: not installed
-  [PASS] exit=0, matched 'CiteStudio 0.2.0 | Tectonic: ... | Typst: ...' (locale=en).
+  stdout: CiteStudio 0.3.0 | Tectonic: /opt/homebrew/bin/tectonic | Typst: not installed
+  [PASS] exit=0, matched 'CiteStudio 0.3.0 | Tectonic: ... | Typst: ...' (locale=en).
 
 [6/16] $ .build/debug/CiteStudio --cli verify path/to/references.bib
   [PASS] exit=0, matched '[Verified]' and 'Summary: Evaluated=1 Verified=1'.

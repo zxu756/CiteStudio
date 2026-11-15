@@ -5,9 +5,9 @@
 **Citation Verification, Retraction Check & Prose Linter for LaTeX and Typst on macOS (Swift 6 + Crossref + OpenAlex + MCP)**
 
 > **Version & Scope Notice (Read First)**
-> - **Published `v0.2.0` (`main`) vs. Unreleased (`after main / v0.2.0`)**: Published `v0.2.0` includes `--cli status`, `--cli lint`, `--cli compile`, `--mcp`, and `--lang en|zh`. Entry points and behaviors marked **Unreleased (after `main` / `v0.2.0`)** below — including `--cli verify`, `--cli clear-cache`, `--cli help` / `--help`, `--cache-dir`, `--demo`, the empty-by-default desktop workspace, and three-way `Unverified` vs. `GhostPaper` separation — exist on the post-`v0.2.0` branch and have not yet been cut into a tagged release.
-> - **Real user files work via CLI & MCP**: Verify `.bib` bibliographies (`--cli verify`, Unreleased after `main`), clear cached lookups (`--cli clear-cache`, Unreleased after `main`), lint `.tex`/`.typ` prose (`--cli lint`), compile documents (`--cli compile`), and gate agent edits via the stdio MCP server (`--mcp`).
-> - **Desktop GUI current limits**: Launching `CiteStudio` without `--demo` (Unreleased after `main`; published `v0.2.0` loaded sample data on launch) starts in a clean **empty workspace** (`0` manuscript text, `0` bibliography entries, `0` diagnostics). Opening arbitrary local project folders in the GUI, bidirectional SyncTeX click-jumping in the GUI, and automatic `pdfs/` bounding-box highlighting in the GUI are **planned and not yet implemented** (see [Planned (Not Yet Implemented)](#planned-not-yet-implemented)). Use the **`Load Demo`** toolbar button or `--demo` flag to inspect the built-in `[DEMO]` sample workspace.
+> - **Published `v0.2.0` vs. `v0.3.0` onward**: Published `v0.2.0` includes `--cli status`, `--cli lint`, `--cli compile`, `--mcp`, and `--lang en|zh`. Entry points and behaviors marked **since `v0.3.0`** below — including `--cli verify`, `--cli clear-cache`, `--cli help` / `--help`, `--cache-dir`, `--demo`, the empty-by-default desktop workspace, and three-way `Unverified` vs. `GhostPaper` separation — are first available in `v0.3.0`; `v0.2.0` does not have them.
+> - **Real user files work via CLI & MCP**: Verify `.bib` bibliographies (`--cli verify`, since v0.3.0), clear cached lookups (`--cli clear-cache`, since v0.3.0), lint `.tex`/`.typ` prose (`--cli lint`), compile documents (`--cli compile`), and gate agent edits via the stdio MCP server (`--mcp`).
+> - **Desktop GUI current limits**: Launching `CiteStudio` without `--demo` (since v0.3.0; published `v0.2.0` loaded sample data on launch) starts in a clean **empty workspace** (`0` manuscript text, `0` bibliography entries, `0` diagnostics). Opening arbitrary local project folders in the GUI, bidirectional SyncTeX click-jumping in the GUI, and automatic `pdfs/` bounding-box highlighting in the GUI are **planned and not yet implemented** (see [Planned (Not Yet Implemented)](#planned-not-yet-implemented)). Use the **`Load Demo`** toolbar button or `--demo` flag to inspect the built-in `[DEMO]` sample workspace.
 
 ---
 
@@ -31,9 +31,9 @@
 
 ---
 
-## Capabilities (`Unreleased, after main / v0.2.0` unless noted)
+## Capabilities (`since v0.3.0` unless noted)
 
-### 1. Citation Verification & Three-Way Lookup Separation (`ScholarTriangulator` — Unreleased, after `main`)
+### 1. Citation Verification & Three-Way Lookup Separation (`ScholarTriangulator` — since v0.3.0)
 Queries **Crossref** and **OpenAlex** over `URLSession` and separates three upstream outcomes:
 
 1. **Found (`Verified` / `PreprintUpgrade` / `MetadataMismatch` / `Retracted`)**:
@@ -54,12 +54,12 @@ Runs a JSON-RPC 2.0 MCP server over `stdin`/`stdout` exposing 6 tools:
 
 | MCP Tool | Behavior & Current Limits |
 | :--- | :--- |
-| `verify_citation` | Verifies a BibTeX entry against Crossref, OpenAlex, and the SQLite cache, returning structured JSON (`Verified`, `PreprintUpgrade`, `MetadataMismatch`, `Retracted`, `GhostPaper`, `Unverified`; `Unverified` separation is Unreleased after `main`). |
-| `add_verified_bibtex` | Verifies the BibTeX entry first. Rejects `GhostPaper`, `MetadataMismatch`, `Retracted`, and `Unverified` with `ERR_UNVERIFIED_CITATION` without modifying the target `.bib`. When `Verified` or `PreprintUpgrade`, **synthesizes canonical BibTeX metadata (`title`, `author`, `year`, `journal`/`booktitle`, `doi`) from the upstream record** (Unreleased after `main`) and skips duplicate `citeKey` entries (`SKIPPED_DUPLICATE_KEY`). |
+| `verify_citation` | Verifies a BibTeX entry against Crossref, OpenAlex, and the SQLite cache, returning structured JSON (`Verified`, `PreprintUpgrade`, `MetadataMismatch`, `Retracted`, `GhostPaper`, `Unverified`; `Unverified` separation is since v0.3.0). |
+| `add_verified_bibtex` | Verifies the BibTeX entry first. Rejects `GhostPaper`, `MetadataMismatch`, `Retracted`, and `Unverified` with `ERR_UNVERIFIED_CITATION` without modifying the target `.bib`. When `Verified` or `PreprintUpgrade`, **synthesizes canonical BibTeX metadata (`title`, `author`, `year`, `journal`/`booktitle`, `doi`) from the upstream record** (since v0.3.0) and skips duplicate `citeKey` entries (`SKIPPED_DUPLICATE_KEY`). |
 | `search_local_pdfs` | Queries `pdf_fts5.sqlite` via SQLite FTS5 BM25. **Current limitation**: Neither `--cli` nor `--mcp` currently exposes a command/tool to build the PDF index in a new workspace, so this tool returns empty `matches` unless `LocalPDFIndexer.indexPDF` was populated programmatically. |
 | `get_claim_evidence` | Runs keyword-only BM25 lookup against `pdf_fts5.sqlite` (does not check numeric values or negation). **Current limitations**: Returned `rect` coordinates are coarse page/block-level `PDFKit` text bounds split on `\n\n` (falling back to a fixed default rectangle if selection fails) rather than line- or sentence-level boxes, and there is no CLI/MCP PDF-indexing entry point in M0. |
 | `audit_manuscript` | Runs deterministic prose and float lint rules (`WritingQualityLinter`) on raw LaTeX/Typst text. |
-| `compile_pdf` | Compiles an existing `.tex` or `.typ` file via `tectonic --synctex` or `typst compile` (returns `ERR_FILE_NOT_FOUND` on missing paths, Unreleased after `main`, or compiler diagnostics on failure). |
+| `compile_pdf` | Compiles an existing `.tex` or `.typ` file via `tectonic --synctex` or `typst compile` (returns `ERR_FILE_NOT_FOUND` on missing paths, since v0.3.0, or compiler diagnostics on failure). |
 
 ### 3. Deterministic Academic Prose & Structure Linter (`WritingQualityLinter` — in `v0.2.0`)
 Offline regex and line-structure checks with zero LLM calls:
@@ -90,24 +90,24 @@ swift build
 ```
 
 ### CLI Commands (`--cli`)
-Every `--cli` command shares the same verification and linting core as the MCP server and supports `--lang en` / `--lang zh` (plus `--cache-dir <dir>`, Unreleased after `main`):
+Every `--cli` command shares the same verification and linting core as the MCP server and supports `--lang en` / `--lang zh` (plus `--cache-dir <dir>`, since v0.3.0):
 
 ```bash
 # 1. Inspect compiler binary paths (in v0.2.0)
 .build/debug/CiteStudio --cli status
 
-# 2. Verify every BibTeX entry in a .bib file (Unreleased, after main / v0.2.0)
+# 2. Verify every BibTeX entry in a .bib file (since v0.3.0)
 #    Exits 0 ONLY when every entry is strictly Verified;
 #    exits 1 if any entry is PreprintUpgrade, GhostPaper, MetadataMismatch, Retracted, or Unverified.
 .build/debug/CiteStudio --cli verify path/to/references.bib
 .build/debug/CiteStudio --cli verify path/to/references.bib --json
 .build/debug/CiteStudio --cli verify path/to/references.bib --lang zh
 
-# 3. Clear the local SQLite verification cache (Unreleased, after main / v0.2.0)
+# 3. Clear the local SQLite verification cache (since v0.3.0)
 .build/debug/CiteStudio --cli clear-cache
 .build/debug/CiteStudio --cli clear-cache --lang zh
 
-# 4. Run deterministic prose & float lint checks on a .tex or .typ file (in v0.2.0; missing-file exit 2 is Unreleased after main)
+# 4. Run deterministic prose & float lint checks on a .tex or .typ file (in v0.2.0; missing-file exit 2 is since v0.3.0)
 .build/debug/CiteStudio --cli lint path/to/main.tex
 .build/debug/CiteStudio --cli lint path/to/main.tex --lang zh
 
@@ -117,12 +117,12 @@ Every `--cli` command shares the same verification and linting core as the MCP s
 # 6. Query the stdio MCP server tool list (in v0.2.0)
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | .build/debug/CiteStudio --mcp
 
-# 7. Launch GUI (empty workspace by default, Unreleased after main; pass --demo for sample data)
+# 7. Launch GUI (empty workspace by default, since v0.3.0; pass --demo for sample data)
 .build/debug/CiteStudio
 .build/debug/CiteStudio --demo --lang zh
 ```
 
-### Environment Variables (`Unreleased, after main / v0.2.0`)
+### Environment Variables (`since v0.3.0`)
 | Variable | Purpose |
 | :--- | :--- |
 | `CITESTUDIO_CACHE_DIR` | Override directory for `scholar_cache.sqlite` and `pdf_fts5.sqlite` (can also pass `--cache-dir <path>`). |
