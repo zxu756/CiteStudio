@@ -8,9 +8,10 @@ Trust Boundary & Known Limitation (C24):
 - Because `manifest.json`, `.meta.json`, and `.raw` reside in the same repository without
   an external cryptographic signature (e.g., TLSNotary), an author who modifies `.raw` AND
   recomputes `byte_length` + `sha256` in both `.meta.json` and `manifest.json` will still
-  satisfy self-contained checks unless `--expected-manifest-sha256` is pinned against an
-  externally recorded digest (e.g., `29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9`
-  from `m0/honest` `c8298c3`) or verified via `git diff <baseline> -- Tests/Fixtures/recorded/`.
+  satisfy self-contained checks unless `--expected-manifest-sha256` is pinned against the
+  recorded baseline digest (`PINNED_CURRENT_MANIFEST_SHA256`) and `--verify-m0-baseline`
+  confirms the original 20 M0 items (`.raw`, `.meta.json`, and `manifest.items[:20]`) remain
+  byte-for-byte identical to `m0/honest` (`29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9`).
 """
 
 from __future__ import annotations
@@ -23,6 +24,34 @@ import json
 import os
 import sys
 import urllib.parse
+
+PINNED_M0_MANIFEST_SHA256 = "29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9"
+PINNED_CURRENT_MANIFEST_SHA256 = "adc644701848c655114c59afc21e6548ee30e110a1c273cd6c278832b5a7b274"
+PINNED_M0_FIRST_20_ITEMS_JSON_SHA256 = "2ab261bfcea070a4782ad2cbc41c321e340b06ea6f29400b28ad07a3789e0bb9"
+
+# Exact byte lengths and SHA-256 digests of the original 20 (.raw, .meta.json) pairs from m0/honest:
+PINNED_M0_20_FILES: tuple[tuple[str, int, str, int, str], ...] = (
+    ("crossref_doi_10.1038_nature14539_2fbc9ecc14", 40565, "1e398c9591c4c10a368b0d7031e41a4a868c7c85fbde78d1d96e33223251c0f6", 490, "eb5e1ee6320bbe1b6513d9b70e33f462566d5789e6a9e8f941cec9da754a1e26"),
+    ("openalex_doi_10.1038_nature14539_2fbc9ecc14", 21383, "a41f7bf135816cc32d87962ea9ab669ab7cfe09db42a5ad1faf850a776130166", 506, "48525861175aa6b92edb346d612a2b35351ab0d5afe0b36ebfd950d82264941b"),
+    ("crossref_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1", 7294, "0bb29c6cd7a01ff2b486e80ce2b0ab9fd80eac75352c8489c1f223bca776fb7d", 510, "8450b5c2ad3c403acc5779cea4c3858dfcab1645a86ee3f82b371e1534167564"),
+    ("openalex_doi_10.1162_neco.1997.9.8.1735_b5b0572fa1", 17412, "9859e5511dfe944e6dc1f55661bc56e75cc60a1e507342092615134b02aff7b8", 527, "29f67d6db386b5322e17880ca1c341cf9be8ce9b5254ea9d25ddfe93b2342f04"),
+    ("crossref_doi_10.1038_171737a0_c02e1b29fc", 4482, "8307b633959046b5a24e995851e12747c553e2e99319a690bce400e00eec3b09", 480, "1806908902e06b9032df73441d8dbdb16998d0e3ec4eca0cc466ccf1cecf28a8"),
+    ("openalex_doi_10.1038_171737a0_c02e1b29fc", 13691, "54b62fb8aa809bc01a0cfbe448d62053d325d90553e9473eb1935ff5806fe1b9", 497, "e3c326f87ac5b78cac5f610cdc8753bd90f07f6c91641642364b3ac0781dbc88"),
+    ("crossref_doi_10.1038_fake.2026.99999_f246da2766", 19, "ae8462e3af85ca7577aaa97ff22a194f9dfd7fada58cf4944b53d2fdfa7b1f92", 493, "663e2f7057a122a6bd657a63a286b88f73c8c51ff9da9d44381bc169328dc982"),
+    ("openalex_doi_10.1038_fake.2026.99999_f246da2766", 207, "e9639e3c4681ce85f852fbac48e2eeee5ba51296dbfec57c200d59b76237ab80", 524, "b8c829fa94cb6f0d9b85c50363d695c120080d4542aac1504ae041a17726c43b"),
+    ("crossref_doi_10.1234_fake.2026.99999_ca13380f94", 19, "ae8462e3af85ca7577aaa97ff22a194f9dfd7fada58cf4944b53d2fdfa7b1f92", 493, "dae42b3d1fa850cda5d3be5ce046c3101cedf4880aa44f3b2316e26e88e8341f"),
+    ("openalex_doi_10.1234_fake.2026.99999_ca13380f94", 207, "e9639e3c4681ce85f852fbac48e2eeee5ba51296dbfec57c200d59b76237ab80", 524, "2f9c406997f97ace1fe524b9209909421f7f81af9cd53d728349cee3cb1a61de"),
+    ("crossref_doi_10.1016_j.fct.2012.08.005_289ea237f0", 23124, "a3d2ff8021ac50bd8ba4d4b123ed41839a11d521d71d2c0542a9410ef9bb30e0", 508, "d2d2635ecacd7aed935e80a76bd1c76526569c2bf2175e4a94c4b8f93fbd98c0"),
+    ("openalex_doi_10.1016_j.fct.2012.08.005_289ea237f0", 33425, "ca11706cf122f24caf1e806c9f2eea67c5bc369c0702e134d7c5f9810243a810", 524, "13703c48e93391fbfc98ccf88a58f0286c7c386e240d4af36720deaa1f337c42"),
+    ("crossref_doi_10.1016_s0140-6736_97_11096-0_e1144ad9cb", 11288, "b154ca5978d796a0983c5a551653db9fff70f48a9d3bb0831a117ca9528e9a83", 520, "b44c1e2ab82f67ec4e8b47c10de68f25a9675501567636c0029cd0291d169f5e"),
+    ("openalex_doi_10.1016_s0140-6736_97_11096-0_e1144ad9cb", 25959, "26161a6db78649470ab58fcf2c4250a7b55a08f8168867ebdd708084d48c9917", 536, "ee51dcb919c983d7c38dcc537bbb1c00b866af4732851b6195608527d978683b"),
+    ("crossref_doi_10.48550_arxiv.1706.03762_f81aabcbd3", 19, "ae8462e3af85ca7577aaa97ff22a194f9dfd7fada58cf4944b53d2fdfa7b1f92", 499, "a8a0df69339521739c77184b3751b787e625b23029aa5460abfa5fc7d5ade788"),
+    ("openalex_doi_10.48550_arxiv.1706.03762_f81aabcbd3", 30776, "60af926c6a42eee1303e4ef38887d81f71e6b2d534a89c715adcde330ed63740", 524, "2fa10417bf3d52d0a1f7d86167dbd43d24c01c02b4122ef93c41bbfeabfa96e4"),
+    ("openalex_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9", 32037, "98eb1bd079a0cbc95b7f1910eab4e0de15e04b170e67b9c8231141392a2a29cb", 632, "048a04059d09a46ef78cf3362518f1f33982a6cfec4bd1d5245d65269fdb1084"),
+    ("crossref_title_The_Art_of_Computer_Programming_Volume_1_Fundame_a30531dad9", 5177, "201553e030eb886ad03f179fde1e9171fade6f3f989663c42e7ad41f66222e74", 640, "e51942f35ccbce636904294b7dec8ed900061b5adc83cfbd939add3ca9ef057a"),
+    ("openalex_title_Recursive_Causal_Lattices_for_Zero-Shot_Climate__1c12c1589a", 61307, "4b269e79c8ab99764a937646c5ae3067156e0a7d8b5c8ef1c5d37756c962aa94", 622, "832caa7be429b593ecaf73a2608703294914bc7e2e86547c7915e2b41ab091d4"),
+    ("crossref_title_Recursive_Causal_Lattices_for_Zero-Shot_Climate__1c12c1589a", 28903, "bca0d13ecc95b5212dcdbd809166fc4a7f768810d1e0546a770fe642a89e7432", 631, "82b098678312eadfb4ac58bb6595d3c9d6cbb500a8960cd5ec4912034e5b7b8a"),
+)
 
 
 def fail(msg: str) -> None:
@@ -40,7 +69,43 @@ def parse_iso_utc(ts: str, field_name: str) -> datetime.datetime:
         raise AssertionError("unreachable")
 
 
-def validate_directory(rec_dir: str, min_items: int, expected_manifest_sha256: str | None = None) -> None:
+def verify_m0_baseline_20(rec_dir: str, items: list[dict]) -> None:
+    if len(items) < len(PINNED_M0_20_FILES):
+        fail(f"M0 baseline check requires at least {len(PINNED_M0_20_FILES)} items, got {len(items)}")
+
+    prefix_items = items[: len(PINNED_M0_20_FILES)]
+    actual_prefix_sha = hashlib.sha256(
+        json.dumps(prefix_items, indent=2, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if actual_prefix_sha != PINNED_M0_FIRST_20_ITEMS_JSON_SHA256:
+        fail(
+            f"manifest.items[:20] differs from M0 baseline: "
+            f"expected={PINNED_M0_FIRST_20_ITEMS_JSON_SHA256!r} vs actual={actual_prefix_sha!r}"
+        )
+
+    for idx, (slug, exp_raw_len, exp_raw_sha, exp_meta_len, exp_meta_sha) in enumerate(PINNED_M0_20_FILES, start=1):
+        raw_path = os.path.join(rec_dir, f"{slug}.raw")
+        meta_path = os.path.join(rec_dir, f"{slug}.meta.json")
+        if not os.path.isfile(raw_path):
+            fail(f"M0 baseline item[{idx}] missing raw file: {raw_path}")
+        if not os.path.isfile(meta_path):
+            fail(f"M0 baseline item[{idx}] missing meta file: {meta_path}")
+
+        raw_bytes = open(raw_path, "rb").read()
+        if len(raw_bytes) != exp_raw_len or hashlib.sha256(raw_bytes).hexdigest() != exp_raw_sha:
+            fail(f"M0 baseline item[{idx}] ({slug}.raw) is not byte-for-byte identical to original M0 recording")
+
+        meta_bytes = open(meta_path, "rb").read()
+        if len(meta_bytes) != exp_meta_len or hashlib.sha256(meta_bytes).hexdigest() != exp_meta_sha:
+            fail(f"M0 baseline item[{idx}] ({slug}.meta.json) is not byte-for-byte identical to original M0 recording")
+
+
+def validate_directory(
+    rec_dir: str,
+    min_items: int,
+    expected_manifest_sha256: str | None = None,
+    verify_m0_baseline: bool = False,
+) -> None:
     if not os.path.isdir(rec_dir):
         fail(f"Directory does not exist: {rec_dir}")
 
@@ -50,11 +115,19 @@ def validate_directory(rec_dir: str, min_items: int, expected_manifest_sha256: s
 
     manifest_raw_bytes = open(manifest_path, "rb").read()
     actual_manifest_sha = hashlib.sha256(manifest_raw_bytes).hexdigest()
-    if expected_manifest_sha256 is not None and actual_manifest_sha != expected_manifest_sha256.lower():
-        fail(
-            f"manifest.json sha256 mismatch against pinned baseline: "
-            f"expected={expected_manifest_sha256.lower()!r} vs actual={actual_manifest_sha!r}"
+    if expected_manifest_sha256 is not None:
+        resolved_expected = (
+            PINNED_CURRENT_MANIFEST_SHA256
+            if expected_manifest_sha256.lower() == "pinned"
+            else expected_manifest_sha256.lower()
         )
+        if actual_manifest_sha != resolved_expected:
+            fail(
+                f"manifest.json sha256 mismatch against pinned baseline: "
+                f"expected={resolved_expected!r} vs actual={actual_manifest_sha!r}"
+            )
+        if resolved_expected == PINNED_CURRENT_MANIFEST_SHA256:
+            verify_m0_baseline = True
 
     try:
         with open(manifest_path, encoding="utf-8") as fh:
@@ -76,8 +149,8 @@ def validate_directory(rec_dir: str, min_items: int, expected_manifest_sha256: s
     parse_iso_utc(manifest.get("completed_at"), "manifest.completed_at")
 
     total_sent = manifest.get("total_http_requests_sent")
-    if type(total_sent) is not int or total_sent < min_items or total_sent > 24:
-        fail(f"manifest.total_http_requests_sent must be int in [{min_items}, 24], got {total_sent!r}")
+    if type(total_sent) is not int or total_sent < min_items or total_sent > 36:
+        fail(f"manifest.total_http_requests_sent must be int in [{min_items}, 36], got {total_sent!r}")
 
     items = manifest.get("items")
     if not isinstance(items, list) or len(items) < min_items:
@@ -173,23 +246,37 @@ def validate_directory(rec_dir: str, min_items: int, expected_manifest_sha256: s
             except Exception as exc:
                 fail(f"{ctx} HTTP 200 raw body is not valid UTF-8 JSON: {exc}")
 
+    if verify_m0_baseline:
+        verify_m0_baseline_20(rec_dir, items)
+
+    baseline_note = " m0_baseline_20_byte_identical=true" if verify_m0_baseline else ""
     print(
         f"VALID_RECORDED_FIXTURES: items={len(items)} total_http_requests_sent={total_sent} "
-        f"started_at={manifest['started_at']} completed_at={manifest['completed_at']}"
+        f"started_at={manifest['started_at']} completed_at={manifest['completed_at']}{baseline_note}"
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate recorded Crossref/OpenAlex fixtures.")
     parser.add_argument("recorded_dir", help="Path to Tests/Fixtures/recorded")
-    parser.add_argument("--min-items", type=int, default=20, help="Minimum required fixture items (default: 20)")
+    parser.add_argument("--min-items", type=int, default=28, help="Minimum required fixture items (default: 28)")
     parser.add_argument(
         "--expected-manifest-sha256",
         default=None,
-        help="Optional pinned SHA-256 hex digest of manifest.json to detect synchronized raw+manifest edits",
+        help="Optional pinned SHA-256 hex digest of manifest.json (or 'pinned' for PINNED_CURRENT_MANIFEST_SHA256)",
+    )
+    parser.add_argument(
+        "--verify-m0-baseline",
+        action="store_true",
+        help="Verify the original 20 M0 (.raw, .meta.json, manifest.items[:20]) entries are byte-for-byte identical",
     )
     args = parser.parse_args()
-    validate_directory(args.recorded_dir, args.min_items, args.expected_manifest_sha256)
+    validate_directory(
+        args.recorded_dir,
+        args.min_items,
+        args.expected_manifest_sha256,
+        args.verify_m0_baseline,
+    )
 
 
 if __name__ == "__main__":

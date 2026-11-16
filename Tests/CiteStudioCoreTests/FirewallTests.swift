@@ -587,9 +587,9 @@ struct FirewallTests {
             transport: transport
         )
 
-        // 1. End-to-end HTTP replay ABOVE 0.78 (similarity = 8/10 = 0.8000 >= 0.78):
-        //    Recorded OpenAlex/Crossref response for query "The Art of Computer Programming, Volume 1: Fundamental Algorithms"
-        //    contains MacLaren 1969 ("The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)", type="article").
+        // 1. End-to-end HTTP replay ABOVE 0.78 inside [0.78, 0.90) (turns RED if threshold 0.78 -> 0.90):
+        //    (1a) Recorded OpenAlex/Crossref response for "The Art of Computer Programming, Volume 1: Fundamental Algorithms"
+        //         contains MacLaren 1969 ("The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)", type="article", sim=8/10=0.8000).
         let maclarenAbove = try #require(BibTeXParser.parseBibTeX("""
         @article{cr2_above_080, author = {MacLaren, M. Donald}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, journal = {SIAM Review}, year = {1969}}
         """).first)
@@ -602,14 +602,57 @@ struct FirewallTests {
         #expect(diagAbove.kind == .verified)
         #expect(diagAbove.matchedRecord?.venue == "SIAM Review")
 
-        // 2. End-to-end HTTP replay BELOW 0.78 (similarity = 5/16 = 0.3125 < 0.78, but > 0.30):
-        //    Recorded Crossref response for query "Recursive Causal Lattices for Zero-Shot Climate Forecasting"
-        //    contains Jun Wang 2025 ("A zero-shot load forecasting method for extreme weather integrating causal learning and meta-learning",
-        //    venue="Energy", type="journal-article"). Author ("Wang") and year (2025) match; ONLY similarity 0.3125 < 0.78 rejects it.
-        //    NOTE on end-to-end HTTP replay coverage gap (现有录制测不到):
-        //    PublicScholarHTTPTransport sends entry.title verbatim in the HTTP query URL, and Tests/Fixtures/recorded/ only has 2 recorded
-        //    title queries; the sole candidate in (0.3125, 0.78) is Wells 1973 (0.6667), which is already blocked by type="book-review".
-        //    Therefore, in end-to-end HTTP replay, non-book-review candidates in (0.3125, 0.78) are 现有录制测不到 (no synthetic body added).
+        //    (1b) Newly recorded OpenAlex response for "Introduction to Information Retrieval"
+        //         contains Stefano Ceri 2013 ("An Introduction to Information Retrieval", type="book-chapter", sim=4/5=0.8000).
+        let ceriAbove = try #require(BibTeXParser.parseBibTeX("""
+        @incollection{cr2_ceri_above_080, author = {Ceri, Stefano}, title = {Introduction to Information Retrieval}, booktitle = {Web Information Retrieval}, year = {2013}}
+        """).first)
+        let simCeri = ScholarTriangulator.normalizedTitleSimilarity(
+            ceriAbove.title,
+            "An Introduction to Information Retrieval"
+        )
+        #expect(abs(simCeri - 0.80) < 1e-9)
+        let diagCeri = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: ceriAbove, triangulator: triangulator)
+        #expect(diagCeri.kind == .verified)
+        #expect(diagCeri.matchedRecord?.venue == "Springer eBooks")
+        #expect(diagCeri.matchedRecord?.workType == "book-chapter")
+
+        // 2. End-to-end HTTP replay BELOW 0.78 inside (0.50, 0.78) (turns RED if threshold 0.78 -> 0.50):
+        //    (2a) Newly recorded OpenAlex[0] & Crossref[1] response for "Distinctive Image Features from Scale-Invariant Matching"
+        //         contains David G. Lowe 2004 ("Distinctive Image Features from Scale-Invariant Keypoints", type="article"/"journal-article", sim=6/8=0.7500).
+        //         Author ("Lowe") and year (2004) match; ONLY similarity 0.7500 < 0.78 rejects it.
+        let loweBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_lowe_below_075, author = {Lowe, David G.}, title = {Distinctive Image Features from Scale-Invariant Matching}, journal = {International Journal of Computer Vision}, year = {2004}}
+        """).first)
+        let simLowe = ScholarTriangulator.normalizedTitleSimilarity(
+            loweBelow.title,
+            "Distinctive Image Features from Scale-Invariant Keypoints"
+        )
+        #expect(abs(simLowe - 0.75) < 1e-9)
+        let diagLowe = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: loweBelow, triangulator: triangulator)
+        #expect(diagLowe.kind == .ghostPaper)
+        #expect(diagLowe.kind != .verified)
+        #expect(diagLowe.kind != .metadataMismatch)
+
+        //    (2b) Newly recorded Crossref[2] response for "Distinctive Image Features from Scale-Invariant Matching"
+        //         contains Guoliang Tang 2019 ("Distinctive image features from illumination and scale invariant keypoints",
+        //         venue="Multimedia Tools and Applications", type="journal-article", sim=6/10=0.6000).
+        //         Author ("Tang") and year (2019) match; ONLY similarity 0.6000 < 0.78 rejects it.
+        let tangBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_tang_below_060, author = {Tang, Guoliang}, title = {Distinctive Image Features from Scale-Invariant Matching}, journal = {Multimedia Tools and Applications}, year = {2019}}
+        """).first)
+        let simTang = ScholarTriangulator.normalizedTitleSimilarity(
+            tangBelow.title,
+            "Distinctive image features from illumination and scale invariant keypoints"
+        )
+        #expect(abs(simTang - 0.60) < 1e-9)
+        let diagTang = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: tangBelow, triangulator: triangulator)
+        #expect(diagTang.kind == .ghostPaper)
+        #expect(diagTang.kind != .verified)
+        #expect(diagTang.kind != .metadataMismatch)
+
+        //    (2c) Original recorded Crossref response for "Recursive Causal Lattices for Zero-Shot Climate Forecasting"
+        //         contains Jun Wang 2025 (sim = 5/16 = 0.3125 < 0.78) and Frédéric Montet 2025 (sim = 4/17 = 0.2353 < 0.78).
         let wangBelow = try #require(BibTeXParser.parseBibTeX("""
         @article{cr2_below_03125, author = {Wang, Jun}, title = {Recursive Causal Lattices for Zero-Shot Climate Forecasting}, journal = {Energy}, year = {2025}}
         """).first)
@@ -702,6 +745,136 @@ struct FirewallTests {
         #expect(readmeEN.contains("only compares the first author") || readmeEN.contains("First-author-only comparison"))
         #expect(readmeZH.contains("只比对第一作者"))
         #expect(readmeZH.contains("第二作者"))
+    }
+
+    @Test("C5 Recorded Supplement: 6 DOI-less real-upstream title-search cases (a-f) verify indexed monograph, year drift >= 2, wrong author, near-threshold fabrication, Chinese paper, and 1-word common title")
+    func c5RecordedSupplementSixCasesReplay() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c5_supp_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("c5_supp_cache.sqlite"),
+            transport: transport
+        )
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let supplementBibURL = repoRoot.appendingPathComponent("Tests/Fixtures/c5_nodoi_supplement.bib")
+        let supplementBibText = try String(contentsOf: supplementBibURL, encoding: .utf8)
+        let entries = BibTeXParser.parseBibTeX(supplementBibText)
+        #expect(entries.count == 6)
+
+        var diagsByKey: [String: CitationDiagnostic] = [:]
+        for entry in entries {
+            let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
+            diagsByKey[entry.citeKey] = diag
+        }
+
+        // (a) Real book indexed upstream, exact title + author + year:
+        //     OpenAlex[0] is Choice Reviews Online (2009, type="book-review", same authors) -> rejected by C5 book-review guard;
+        //     OpenAlex[1] is Cambridge University Press eBooks (2008, type="book", 10.1017/cbo9780511809071) -> Verified!
+        let diagA = try #require(diagsByKey["c5_a_indexed_book"])
+        #expect(diagA.kind == .verified)
+        #expect(diagA.matchedRecord?.venue == "Cambridge University Press eBooks")
+        #expect(diagA.matchedRecord?.workType == "book")
+        #expect(diagA.matchedRecord?.doi == "10.1017/cbo9780511809071")
+        #expect(diagA.notFoundReason == nil)
+
+        // (b) Same book, year differs by 5 (>= 2: 2003 vs 2008) -> GhostPaper (NOT FOUND, never MetadataMismatch or Verified)
+        let diagB = try #require(diagsByKey["c5_b_same_book_year_drift"])
+        #expect(diagB.kind == .ghostPaper)
+        #expect(diagB.kind != .metadataMismatch)
+        #expect(diagB.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (c) Same book, author replaced with Kleinberg -> GhostPaper (NOT FOUND, never MetadataMismatch or Verified)
+        let diagC = try #require(diagsByKey["c5_c_same_book_wrong_author"])
+        #expect(diagC.kind == .ghostPaper)
+        #expect(diagC.kind != .metadataMismatch)
+        #expect(diagC.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (d) Fabricated title changing 1 word of Lowe 2004 (Keypoints -> Matching; Jaccard 6/8 = 0.7500 in (0.50, 0.78)) -> GhostPaper
+        let diagD = try #require(diagsByKey["c5_d_near_threshold_fab"])
+        #expect(diagD.kind == .ghostPaper)
+        #expect(diagD.kind != .verified)
+        #expect(diagD.kind != .metadataMismatch)
+        #expect(diagD.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (e) Real Chinese-title paper (袁隆平 1966 水稻的雄性不孕性):
+        //     Upstream OpenAlex[0] & Crossref[0] store author as "隆平 袁" (normalized surname "袁"), whereas unspaced Chinese BibTeX
+        //     author "袁隆平" normalizes to "袁隆平" -> rejected as GhostPaper (NOT FOUND).
+        let diagE = try #require(diagsByKey["c5_e_chinese_paper"])
+        #expect(diagE.kind == .ghostPaper)
+        #expect(diagE.kind != .metadataMismatch)
+        #expect(diagE.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (f) Short 1-word common title ("Algorithms", Sedgewick & Wayne 2011):
+        //     Upstream top-3 returns other works -> rejected by C5 guards as GhostPaper (NOT FOUND, never false Verified)
+        let diagF = try #require(diagsByKey["c5_f_short_common_title"])
+        #expect(diagF.kind == .ghostPaper)
+        #expect(diagF.kind != .verified)
+        #expect(diagF.kind != .metadataMismatch)
+        #expect(diagF.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // CLI --json and MCP add_verified_bibtex parity on the 6 cases: only (a) may be appended to target .bib
+        let cliEnv = [
+            "CITESTUDIO_CROSSREF_BASE_URL": replay.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": replay.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cli_cache").path
+        ]
+        let cliRes = await CiteStudioCLI.run(
+            arguments: ["CiteStudio", "--cli", "verify", supplementBibURL.path, "--json", "--lang", "en"],
+            environment: cliEnv
+        )
+        #expect(cliRes.exitCode == 1)
+        let cliRoot = try #require(try JSONSerialization.jsonObject(with: Data(cliRes.stdout.utf8)) as? [String: Any])
+        let cliSummary = try #require(cliRoot["summary"] as? [String: Any])
+        #expect(cliSummary["evaluated"] as? Int == 6)
+        #expect(cliSummary["verified"] as? Int == 1)
+        #expect(cliSummary["ghostPaper"] as? Int == 5)
+        #expect(cliSummary["metadataMismatch"] as? Int == 0)
+
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer, language: .en)
+        let outBib = tmp.appendingPathComponent("mcp_out.bib")
+        try "".write(to: outBib, atomically: true, encoding: .utf8)
+        for (idx, entry) in entries.enumerated() {
+            let req: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": idx + 1,
+                "method": "tools/call",
+                "params": [
+                    "name": "add_verified_bibtex",
+                    "arguments": ["bib_file": outBib.path, "bibtex": entry.rawBibTeX]
+                ]
+            ]
+            let raw = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: req), encoding: .utf8)!))
+            let rpc = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+            let result = try #require(rpc["result"] as? [String: Any])
+            let isErr = (result["isError"] as? Bool) ?? false
+            if entry.citeKey == "c5_a_indexed_book" {
+                #expect(!isErr)
+            } else {
+                #expect(isErr)
+            }
+        }
+        let writtenBib = try String(contentsOf: outBib, encoding: .utf8)
+        #expect(writtenBib.contains("c5_a_indexed_book"))
+        #expect(writtenBib.contains("10.1017/cbo9780511809071"))
+        #expect(!writtenBib.contains("c5_b_same_book_year_drift"))
+        #expect(!writtenBib.contains("c5_c_same_book_wrong_author"))
+        #expect(!writtenBib.contains("c5_d_near_threshold_fab"))
+        #expect(!writtenBib.contains("c5_e_chinese_paper"))
+        #expect(!writtenBib.contains("c5_f_short_common_title"))
     }
 }
 

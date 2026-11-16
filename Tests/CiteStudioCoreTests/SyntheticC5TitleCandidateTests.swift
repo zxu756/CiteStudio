@@ -1,7 +1,7 @@
 // 合成测试样本说明（Synthetic handwritten HTTP response bodies — 不算 C5 的证据）：
 // 本文件中的 LoopbackC5TitleCandidateServer 返回为单元测试手写的合成 JSON 响应正文，
 // 仅用于隔离回归 C5 候选过滤规则的各个代码分支（年份差 0/1/2、第一作者姓氏归一化、book-review 排除、缓存键隔离），
-// 不算 C5 的真实上游证据。C5 的真实回放证据仅限 Tests/Fixtures/recorded/ 中已录制的两个无 DOI 标题查询（Knuth 1968 与 fake_nodoi）。
+// 不算 C5 的真实上游证据。C5 的真实回放证据来自 Tests/Fixtures/recorded/ 中真实录制的无 DOI 标题查询（见 FirewallTests 中的录制回放测试）。
 
 import Darwin
 import Foundation

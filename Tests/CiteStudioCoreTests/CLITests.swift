@@ -443,12 +443,15 @@ struct CLITests {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        func runValidator(on dir: URL, allowCount: Int = 1, expectedManifestSha: String? = nil) throws -> (Int32, String, String) {
+        func runValidator(on dir: URL, allowCount: Int = 1, expectedManifestSha: String? = nil, verifyM0Baseline: Bool = false) throws -> (Int32, String, String) {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
             var args = [validatorURL.path, dir.path, "--min-items", "\(allowCount)"]
             if let expectedManifestSha {
                 args.append(contentsOf: ["--expected-manifest-sha256", expectedManifestSha])
+            }
+            if verifyM0Baseline {
+                args.append("--verify-m0-baseline")
             }
             p.arguments = args
             let out = Pipe()
@@ -549,6 +552,24 @@ struct CLITests {
             .write(to: tmp.appendingPathComponent("manifest.json"))
         let blankDateRes = try runValidator(on: tmp, allowCount: 1)
         #expect(blankDateRes.0 != 0)
+
+        // 4. Real Tests/Fixtures/recorded directory (28 items) passes pinned manifest SHA-256 AND byte-for-byte check of original 20 M0 items,
+        //    and --verify-m0-baseline rejects 1-byte whitespace formatting tamper in an original .meta.json file
+        let realRecordedDir = repoRoot.appendingPathComponent("Tests/Fixtures/recorded")
+        let realPinnedRes = try runValidator(on: realRecordedDir, allowCount: 28, expectedManifestSha: "pinned", verifyM0Baseline: true)
+        #expect(realPinnedRes.0 == 0, "Expected real recorded fixtures to pass pinned + M0 baseline check, stderr=\(realPinnedRes.2)")
+        #expect(realPinnedRes.1.contains("items=28"))
+        #expect(realPinnedRes.1.contains("m0_baseline_20_byte_identical=true"))
+
+        let m0TamperCopy = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c23_m0tamper_\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: realRecordedDir, to: m0TamperCopy)
+        defer { try? FileManager.default.removeItem(at: m0TamperCopy) }
+        let oldMetaURL = m0TamperCopy.appendingPathComponent("crossref_doi_10.1038_nature14539_2fbc9ecc14.meta.json")
+        let oldMetaBytes = try Data(contentsOf: oldMetaURL)
+        try (oldMetaBytes + Data("\n".utf8)).write(to: oldMetaURL)
+        let m0TamperRes = try runValidator(on: m0TamperCopy, allowCount: 28, verifyM0Baseline: true)
+        #expect(m0TamperRes.0 != 0)
+        #expect(m0TamperRes.2.contains("not byte-for-byte identical to original M0 recording"))
     }
 
     @Test("CR3: Handwritten-body C5 tests carry '合成' in file header and test name, and m1-acceptance.sh Part B states it is synthetic and not C5 evidence")
