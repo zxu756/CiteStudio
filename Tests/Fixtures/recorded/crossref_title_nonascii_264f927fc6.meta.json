@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 4930,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_nonascii_264f927fc6.raw",
+  "requested_at": "2026-11-16T19:38:35Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:36 GMT",
+  "service": "crossref",
+  "sha256": "f37c2a8ad59fa39e82ece45ccd0b499476d9dade46a11871f0c7ded15d4315d2",
+  "slug": "crossref_title_nonascii_264f927fc6",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=%E6%B0%B4%E7%A8%BB%E7%9A%84%E9%9B%84%E6%80%A7%E4%B8%8D%E5%AD%95%E6%80%A7&rows=3"
+}

@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 6327,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_Algorithms_3c34d93828.raw",
+  "requested_at": "2026-11-16T19:38:39Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:40 GMT",
+  "service": "crossref",
+  "sha256": "c59ad3ff0d54d5f6af6216231744b3cb6d4fab151445ef617e6cad807af15977",
+  "slug": "crossref_title_Algorithms_3c34d93828",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=Algorithms&rows=3"
+}

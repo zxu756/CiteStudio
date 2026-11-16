@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 52822,
+  "content_type": "application/json",
+  "raw_file": "openalex_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36.raw",
+  "requested_at": "2026-11-16T19:38:28Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:29 GMT",
+  "service": "openalex",
+  "sha256": "176b0ca683658b48185ff0c4f07d6de951dfebcffed9b1d6f4512a7970c374c4",
+  "slug": "openalex_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36",
+  "status": 200,
+  "url": "https://api.openalex.org/works?search=Distinctive%20Image%20Features%20from%20Scale-Invariant%20Matching&per-page=3"
+}

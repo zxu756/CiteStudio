@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 37092,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36.raw",
+  "requested_at": "2026-11-16T19:38:30Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:32 GMT",
+  "service": "crossref",
+  "sha256": "49f4f7e91d7ea2ba8df422f7d1a32ec58730be46f0f1617f841cae90737dd0a2",
+  "slug": "crossref_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=Distinctive%20Image%20Features%20from%20Scale-Invariant%20Matching&rows=3"
+}

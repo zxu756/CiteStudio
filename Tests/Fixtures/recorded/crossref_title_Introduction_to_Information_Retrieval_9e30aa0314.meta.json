@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 4738,
+  "content_type": "application/json",
+  "raw_file": "crossref_title_Introduction_to_Information_Retrieval_9e30aa0314.raw",
+  "requested_at": "2026-11-16T19:38:25Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:27 GMT",
+  "service": "crossref",
+  "sha256": "151ce7d95333f117ece3563e50c0aeb479893bba8156719e102d146436e52ada",
+  "slug": "crossref_title_Introduction_to_Information_Retrieval_9e30aa0314",
+  "status": 200,
+  "url": "https://api.crossref.org/works?query.bibliographic=Introduction%20to%20Information%20Retrieval&rows=3"
+}
