@@ -1,12 +1,12 @@
 ==================================================================
 CiteStudio M0 Acceptance Verification (m0-acceptance.sh)
-Timestamp (UTC): 2026-11-15T19:39:58Z
-Commit / Branch: m1/rework @ 4ace54c
+Timestamp (UTC): 2026-11-16T20:03:55Z
+Commit / Branch: m1/rework @ 7988827
 Network Policy : Local 127.0.0.1 loopback ONLY (0 external API calls; 0 GUI windows)
 ==================================================================
 [C23] Validating recorded upstream fixtures in Tests/Fixtures/recorded/...
-VALID_RECORDED_FIXTURES: items=20 total_http_requests_sent=20 started_at=2026-11-14T20:29:06Z completed_at=2026-11-14T20:29:44Z
-[INFO] Local loopback replay/fault server listening at http://127.0.0.1:51706 (recorded_fixtures=1)
+VALID_RECORDED_FIXTURES: items=28 total_http_requests_sent=28 started_at=2026-11-14T20:29:06Z completed_at=2026-11-16T19:38:41Z m0_baseline_20_byte_identical=true
+[INFO] Local loopback replay/fault server listening at http://127.0.0.1:62687 (recorded_fixtures=1)
 
 --- Row 1: Offline -> Unverified (0 cached); Online Recorded Replay -> Re-queries ---
 [PASS] Row 1a (Offline): 12/12 Unverified ([Unverified | 未验证]), 0 GhostPaper, 0 SQLite cache rows (exit=1).
