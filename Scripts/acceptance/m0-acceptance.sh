@@ -171,7 +171,7 @@ run_suite() {
     mkdir -p "${HOME}"
 
     echo "[C23] Validating recorded upstream fixtures in Tests/Fixtures/recorded/..."
-    python3 "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" --min-items 20
+    python3 "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" --min-items 28 --expected-manifest-sha256 pinned --verify-m0-baseline
     HAS_RECORDED_FIXTURES=1
 
     # Local 127.0.0.1 loopback server:

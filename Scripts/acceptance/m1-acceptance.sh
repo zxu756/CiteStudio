@@ -7,6 +7,7 @@ cd "${ROOT_DIR}"
 REPORT_DIR="${ROOT_DIR}/reports"
 REPORT_FILE="${REPORT_DIR}/m1-acceptance.txt"
 PINNED_M0_MANIFEST_SHA256="29b557c0d69c2bdf0913eaa395e5286b63c066afd9af77255493395851097bb9"
+PINNED_CURRENT_MANIFEST_SHA256="adc644701848c655114c59afc21e6548ee30e110a1c273cd6c278832b5a7b274"
 
 RECORD_MODE=0
 RUN_INNER=0
@@ -202,19 +203,22 @@ run_suite() {
     ACC_SKIPPED_ITEMS+=("M1_Item_2(等评测集)")
 
     # ------------------------------------------------------------------
-    # M1 ITEM 3 (C5 Part A): Recorded 12-Entry Replay on Tests/Fixtures/test.bib
-    # Verifies Knuth 1968 (real_nodoi) against recorded Crossref & OpenAlex
-    # book reviews (Odeh 1969, MacLaren 1969, Wells 1973) -> NOT MetadataMismatch!
+    # M1 ITEM 3 (C5 Part A): Recorded Replay on ALL 8 Recorded DOI-less Cases
+    # (Original 2 in test.bib: real_nodoi & fake_nodoi + Newly Recorded 6 in c5_nodoi_supplement.bib: c5_a..c5_f)
     # ------------------------------------------------------------------
     echo ""
-    echo "--- M1 Item 3 (C5 Part A): Recorded 12-Entry Replay (test.bib + CLI/MCP Parity + Bilingual Wording) ---"
+    echo "--- M1 Item 3 (C5 Part A): Recorded Replay Across All 8 Recorded DOI-less Cases (Original 2 + Newly Recorded 6) & 10 DOI Cases ---"
     RECORDED_DIR="${ROOT_DIR}/Tests/Fixtures/recorded"
     TEST_BIB="${ROOT_DIR}/Tests/Fixtures/test.bib"
+    SUPP_BIB="${ROOT_DIR}/Tests/Fixtures/c5_nodoi_supplement.bib"
+    COMBINED_REC_BIB="${TMP_ROOT}/c5_combined_18.bib"
+    cat "${TEST_BIB}" "${SUPP_BIB}" > "${COMBINED_REC_BIB}"
 
     python3 "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" \
         "${RECORDED_DIR}" \
-        --min-items 20 \
-        --expected-manifest-sha256 "${PINNED_M0_MANIFEST_SHA256}"
+        --min-items 28 \
+        --expected-manifest-sha256 "${PINNED_CURRENT_MANIFEST_SHA256}" \
+        --verify-m0-baseline
 
     PORT_FILE="${TMP_ROOT}/recorded_replay.port"
     python3 - "${RECORDED_DIR}" "${PORT_FILE}" <<'PYEOF' &
@@ -286,19 +290,19 @@ PYEOF
     REC_CLI_EN="$(
         CITESTUDIO_CROSSREF_BASE_URL="${REC_BASE}/crossref" \
         CITESTUDIO_OPENALEX_BASE_URL="${REC_BASE}/openalex" \
-        "${BIN}" --cli verify "${TEST_BIB}" --json --cache-dir "${C5_REC_CACHE}_en" --lang en
+        "${BIN}" --cli verify "${COMBINED_REC_BIB}" --json --cache-dir "${C5_REC_CACHE}_en" --lang en
     )"
     REC_CLI_CODE=$?
     REC_CLI_ZH="$(
         CITESTUDIO_CROSSREF_BASE_URL="${REC_BASE}/crossref" \
         CITESTUDIO_OPENALEX_BASE_URL="${REC_BASE}/openalex" \
-        "${BIN}" --cli verify "${TEST_BIB}" --json --cache-dir "${C5_REC_CACHE}_zh" --lang zh
+        "${BIN}" --cli verify "${COMBINED_REC_BIB}" --json --cache-dir "${C5_REC_CACHE}_zh" --lang zh
     )"
     set -e
 
     MCP_TARGET_BIB="${TMP_ROOT}/c5_rec_target.bib"
     : > "${MCP_TARGET_BIB}"
-    REC_MCP_REQ="$(python3 - "${TEST_BIB}" "${MCP_TARGET_BIB}" <<'PYEOF'
+    REC_MCP_REQ="$(python3 - "${COMBINED_REC_BIB}" "${MCP_TARGET_BIB}" <<'PYEOF'
 import json, sys
 bib_path, target_bib = sys.argv[1], sys.argv[2]
 lines = [ln.strip() for ln in open(bib_path, encoding="utf-8") if ln.strip().startswith("@")]
@@ -309,20 +313,24 @@ for idx, line in enumerate(lines, start=1):
         "method": "tools/call",
         "params": {"name": "verify_citation", "arguments": {"bibtex": line}},
     }))
-knuth_line = next(ln for ln in lines if "real_nodoi" in ln)
-fake_nodoi_line = next(ln for ln in lines if "fake_nodoi" in ln)
-print(json.dumps({
-    "jsonrpc": "2.0",
-    "id": 101,
-    "method": "tools/call",
-    "params": {"name": "add_verified_bibtex", "arguments": {"bib_file": target_bib, "bibtex": knuth_line}},
-}))
-print(json.dumps({
-    "jsonrpc": "2.0",
-    "id": 102,
-    "method": "tools/call",
-    "params": {"name": "add_verified_bibtex", "arguments": {"bib_file": target_bib, "bibtex": fake_nodoi_line}},
-}))
+nodoi_keys = [
+    "real_nodoi",
+    "fake_nodoi",
+    "c5_a_indexed_book",
+    "c5_b_same_book_year_drift",
+    "c5_c_same_book_wrong_author",
+    "c5_d_near_threshold_fab",
+    "c5_e_chinese_paper",
+    "c5_f_short_common_title",
+]
+for offset, key in enumerate(nodoi_keys, start=101):
+    stanza = next(ln for ln in lines if f"{{{key}," in ln)
+    print(json.dumps({
+        "jsonrpc": "2.0",
+        "id": offset,
+        "method": "tools/call",
+        "params": {"name": "add_verified_bibtex", "arguments": {"bib_file": target_bib, "bibtex": stanza}},
+    }))
 PYEOF
 )"
     REC_MCP_RESP="$(
@@ -345,18 +353,18 @@ zh_data = json.loads(sys.argv[3])
 mcp_msgs = [json.loads(ln) for ln in sys.argv[4].strip().splitlines() if ln.strip()]
 target_bib = sys.argv[5]
 
-assert cli_code != 0, "Mixed 12-entry test.bib must exit non-zero"
+assert cli_code != 0, "Mixed 18-entry recorded replay bib must exit non-zero"
 
 en_map = {d["citeKey"]: d for d in en_data["entries"]}
 zh_map = {d["citeKey"]: d for d in zh_data["entries"]}
-verify_msgs = [m for m in mcp_msgs if m["id"] <= 12]
+verify_msgs = [m for m in mcp_msgs if m["id"] <= 18]
 add_msgs = {m["id"]: m for m in mcp_msgs if m["id"] > 100}
 mcp_map = {}
 for m in verify_msgs:
     d = json.loads(m["result"]["content"][0]["text"])
     mcp_map[d["citeKey"]] = d["verdict"]
 
-expected_12 = {
+expected_18 = {
     "real_lecun": "Verified",
     "real_lstm": "Verified",
     "real_watson": "Verified",
@@ -369,34 +377,72 @@ expected_12 = {
     "fake_nodoi": "GhostPaper",
     "retracted_seralini": "Retracted",
     "retracted_wakefield": "Retracted",
+    "c5_a_indexed_book": "Verified",
+    "c5_b_same_book_year_drift": "GhostPaper",
+    "c5_c_same_book_wrong_author": "GhostPaper",
+    "c5_d_near_threshold_fab": "GhostPaper",
+    "c5_e_chinese_paper": "GhostPaper",
+    "c5_f_short_common_title": "GhostPaper",
 }
 
-for k, exp in expected_12.items():
+for k, exp in expected_18.items():
     assert en_map[k]["verdict"] == exp, f"CLI EN {k}: expected {exp}, got {en_map[k]['verdict']}"
     assert zh_map[k]["verdict"] == exp, f"CLI ZH {k}: expected {exp}, got {zh_map[k]['verdict']}"
     assert mcp_map[k] == exp, f"MCP {k}: expected {exp}, got {mcp_map[k]}"
-    print(f"  {k:22s} -> CLI={en_map[k]['verdict']:16s} | MCP={mcp_map[k]:16s}")
+    tag = "[C5 DOI-less]" if k in (
+        "real_nodoi", "fake_nodoi",
+        "c5_a_indexed_book", "c5_b_same_book_year_drift", "c5_c_same_book_wrong_author",
+        "c5_d_near_threshold_fab", "c5_e_chinese_paper", "c5_f_short_common_title",
+    ) else "[DOI]        "
+    print(f"  {tag} {k:28s} -> CLI={en_map[k]['verdict']:16s} | MCP={mcp_map[k]:16s}")
 
-# C5 specific checks on Knuth 1968 (real_nodoi)
-assert en_map["real_nodoi"]["verdict"] != "MetadataMismatch"
-assert en_map["real_nodoi"]["badge"] == "NOT FOUND"
-assert "Not found in Crossref / OpenAlex (real_nodoi)" == en_map["real_nodoi"]["headline"], en_map["real_nodoi"]
-assert "fabricated" not in en_map["real_nodoi"]["detail"].lower(), en_map["real_nodoi"]
-assert "未在 Crossref / OpenAlex 中查到匹配记录 (real_nodoi)" == zh_map["real_nodoi"]["headline"], zh_map["real_nodoi"]
-assert "编造" not in zh_map["real_nodoi"]["detail"], zh_map["real_nodoi"]
-assert en_map["real_nodoi"].get("notFoundReason") == "no_doi_not_found_in_crossref_or_openalex", en_map["real_nodoi"]
+# C5 checks across all 8 recorded DOI-less cases (original 2 + newly recorded 6)
+assert en_map["c5_a_indexed_book"]["matchedVenue"] == "Cambridge University Press eBooks", en_map["c5_a_indexed_book"]
+assert en_map["c5_a_indexed_book"]["matchedWorkType"] == "book", en_map["c5_a_indexed_book"]
+assert "notFoundReason" not in en_map["c5_a_indexed_book"], en_map["c5_a_indexed_book"]
+
+for ghost_nodoi_key in (
+    "real_nodoi",
+    "fake_nodoi",
+    "c5_b_same_book_year_drift",
+    "c5_c_same_book_wrong_author",
+    "c5_d_near_threshold_fab",
+    "c5_e_chinese_paper",
+    "c5_f_short_common_title",
+):
+    assert en_map[ghost_nodoi_key]["verdict"] != "MetadataMismatch"
+    assert en_map[ghost_nodoi_key]["badge"] == "NOT FOUND"
+    assert f"Not found in Crossref / OpenAlex ({ghost_nodoi_key})" == en_map[ghost_nodoi_key]["headline"], en_map[ghost_nodoi_key]
+    assert "fabricated" not in en_map[ghost_nodoi_key]["detail"].lower(), en_map[ghost_nodoi_key]
+    assert f"未在 Crossref / OpenAlex 中查到匹配记录 ({ghost_nodoi_key})" == zh_map[ghost_nodoi_key]["headline"], zh_map[ghost_nodoi_key]
+    assert "编造" not in zh_map[ghost_nodoi_key]["detail"], zh_map[ghost_nodoi_key]
+    assert en_map[ghost_nodoi_key].get("notFoundReason") == "no_doi_not_found_in_crossref_or_openalex", en_map[ghost_nodoi_key]
+
 assert en_map["fake_nonsentinel"].get("notFoundReason") == "doi_not_found_in_crossref_and_openalex", en_map["fake_nonsentinel"]
 assert "notFoundReason" not in en_map["real_lecun"], en_map["real_lecun"]
 
-# MCP add_verified_bibtex must block both real_nodoi (not found in Crossref/OpenAlex) and fake_nodoi
-for req_id in (101, 102):
+# MCP add_verified_bibtex: req_id 103 (c5_a_indexed_book) MUST succeed and write canonical BibTeX;
+# the other 7 non-Verified DOI-less cases (101, 102, 104, 105, 106, 107, 108) MUST be rejected!
+ok_txt = add_msgs[103]["result"]["content"][0]["text"]
+assert not add_msgs[103]["result"].get("isError", False), add_msgs[103]
+assert "APPENDED_VERIFIED" in ok_txt, ok_txt
+
+for req_id in (101, 102, 104, 105, 106, 107, 108):
     txt = add_msgs[req_id]["result"]["content"][0]["text"]
     assert add_msgs[req_id]["result"].get("isError") is True, add_msgs[req_id]
     assert "ERR_UNVERIFIED_CITATION" in txt, txt
     assert "no_doi_not_found_in_crossref_or_openalex" in txt, txt
-assert os.path.getsize(target_bib) == 0, "Target .bib must remain untouched when add_verified_bibtex rejects unverified citations"
+
+written_bib = open(target_bib, encoding="utf-8").read()
+assert "@book{c5_a_indexed_book," in written_bib and "10.1017/cbo9780511809071" in written_bib, written_bib
+for blocked_key in (
+    "real_nodoi", "fake_nodoi",
+    "c5_b_same_book_year_drift", "c5_c_same_book_wrong_author",
+    "c5_d_near_threshold_fab", "c5_e_chinese_paper", "c5_f_short_common_title",
+):
+    assert blocked_key not in written_bib, f"{blocked_key} must never be written to .bib!"
 PYEOF
-    echo "[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering the 2 recorded DOI-less titles real_nodoi & fake_nodoi): 12/12 CLI == MCP verdicts matched; real_nodoi (Knuth 1968) rejected Odeh/MacLaren/Wells book reviews -> NOT FOUND (not MetadataMismatch), blocked from .bib insertion."
+    echo "[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering all 8 recorded DOI-less cases: original 2 real_nodoi & fake_nodoi + newly recorded 6 c5_a..c5_f across 6 unique title queries): 18/18 CLI == MCP verdicts matched; c5_a Verified (skipping Choice book-review), while year-drift/wrong-author/near-threshold-0.75/Chinese/short-title & Knuth/fake_nodoi -> NOT FOUND (never MetadataMismatch)."
     ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
@@ -593,7 +639,7 @@ for idx in (1, 2):
 for idx in (3, 4, 5, 6, 7):
     assert "ERR_UNVERIFIED_CITATION" in mcp_lines[idx - 1]["result"]["content"][0]["text"], mcp_lines[idx - 1]
 PYEOF
-    echo "[INFO · 合成 / Synthetic — 不算 C5 的证据] C5 Part B (Handwritten Loopback Sanity Check — 手写合成响应正文，不算 C5 的证据，C5 的结论仅按 Part A 已录制的两个标题计；本段不计入 passed): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper, DOI Δyear=5 & wrong title -> MetadataMismatch."
+    echo "[INFO · 合成 / Synthetic — 不算 C5 的证据] C5 Part B (Handwritten Loopback Sanity Check — 手写合成响应正文，不算 C5 的证据，C5 的结论仅按 Part A 全部 8 条真实录制回放计；本段不计入 passed): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper, DOI Δyear=5 & wrong title -> MetadataMismatch."
 
     # ------------------------------------------------------------------
     # C24: Behavioral Test-Framework Skip Output & Recorded Fixture Immutability
@@ -625,23 +671,34 @@ PYEOF
         BASELINE_REF="origin/m0/honest"
     fi
     if [[ -n "${BASELINE_REF}" ]]; then
-        REC_DIFF="$(git -C "${ROOT_DIR}" diff "${BASELINE_REF}" -- Tests/Fixtures/recorded/)"
-        if [[ -n "${REC_DIFF}" ]]; then
-            echo "FAIL C24: Tests/Fixtures/recorded/ differs from ${BASELINE_REF}!" >&2
-            echo "${REC_DIFF}" >&2
-            exit 1
-        fi
+        python3 - "${ROOT_DIR}" "${BASELINE_REF}" <<'PYEOF'
+import subprocess, sys
+root_dir, base_ref = sys.argv[1], sys.argv[2]
+tracked = subprocess.check_output(
+    ["git", "-C", root_dir, "ls-tree", "-r", "--name-only", base_ref, "--", "Tests/Fixtures/recorded/"],
+    text=True,
+).splitlines()
+old_raw_and_meta = [p for p in tracked if p.endswith(".raw") or p.endswith(".meta.json")]
+assert len(old_raw_and_meta) == 40, f"Expected 40 original .raw/.meta.json files in {base_ref}, found {len(old_raw_and_meta)}"
+diff_out = subprocess.check_output(
+    ["git", "-C", root_dir, "diff", base_ref, "--"] + old_raw_and_meta,
+    text=True,
+)
+if diff_out:
+    print(f"FAIL C24: Original 20 M0 recorded .raw/.meta.json files differ from {base_ref}!\n{diff_out}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
     fi
 
     ACTUAL_MANIFEST_SHA="$(shasum -a 256 "${RECORDED_DIR}/manifest.json" | awk '{print $1}')"
-    if [[ "${ACTUAL_MANIFEST_SHA}" != "${PINNED_M0_MANIFEST_SHA256}" ]]; then
-        echo "FAIL C24: manifest.json SHA-256 (${ACTUAL_MANIFEST_SHA}) != pinned c8298c3 digest (${PINNED_M0_MANIFEST_SHA256})" >&2
+    if [[ "${ACTUAL_MANIFEST_SHA}" != "${PINNED_CURRENT_MANIFEST_SHA256}" ]]; then
+        echo "FAIL C24: manifest.json SHA-256 (${ACTUAL_MANIFEST_SHA}) != pinned digest (${PINNED_CURRENT_MANIFEST_SHA256})" >&2
         exit 1
     fi
 
     # Verify co-tampering of .raw + .meta.json + manifest.json in a temp copy passes unpinned self-check (documented C24 limit)
-    # and is rejected when --expected-manifest-sha256 is pinned to c8298c3's digest
-    python3 - "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" "${TMP_ROOT}" "${PINNED_M0_MANIFEST_SHA256}" <<'PYEOF'
+    # and is rejected when --expected-manifest-sha256 / --verify-m0-baseline is pinned
+    python3 - "${ROOT_DIR}/Scripts/acceptance/validate_recorded_fixtures.py" "${RECORDED_DIR}" "${TMP_ROOT}" "${PINNED_CURRENT_MANIFEST_SHA256}" <<'PYEOF'
 import hashlib, json, os, shutil, subprocess, sys
 
 val_py, rec_dir, tmp_root, pinned_sha = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -659,24 +716,31 @@ it0["sha256"] = hashlib.sha256(mut_bytes).hexdigest()
 json.dump(it0, open(meta0_path, "w", encoding="utf-8"), indent=2, sort_keys=True)
 json.dump(m, open(m_path, "w", encoding="utf-8"), indent=2, sort_keys=True)
 
-unpinned = subprocess.run([sys.executable, val_py, cotamper_dir, "--min-items", "20"], capture_output=True, text=True)
-assert unpinned.returncode == 0, "Expected unpinned self-check to demonstrate C24 co-modification limit"
+unpinned = subprocess.run([sys.executable, val_py, cotamper_dir, "--min-items", "28"], capture_output=True, text=True)
+assert unpinned.returncode == 0, f"Expected unpinned self-check to demonstrate C24 co-modification limit:\n{unpinned.stderr}"
 
 pinned = subprocess.run(
-    [sys.executable, val_py, cotamper_dir, "--min-items", "20", "--expected-manifest-sha256", pinned_sha],
+    [sys.executable, val_py, cotamper_dir, "--min-items", "28", "--expected-manifest-sha256", pinned_sha],
     capture_output=True,
     text=True,
 )
 assert pinned.returncode != 0 and "manifest.json sha256 mismatch" in pinned.stderr, pinned.stderr
+
+m0_base = subprocess.run(
+    [sys.executable, val_py, cotamper_dir, "--min-items", "28", "--verify-m0-baseline"],
+    capture_output=True,
+    text=True,
+)
+assert m0_base.returncode != 0 and "differs from M0 baseline" in m0_base.stderr, m0_base.stderr
 PYEOF
-    echo "[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; Tests/Fixtures/recorded/ has 0 diff vs ${BASELINE_REF:-c8298c3} (manifest SHA-256=${ACTUAL_MANIFEST_SHA})."
+    echo "[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; original 20 M0 recorded files have 0-byte diff vs ${BASELINE_REF:-m0/honest} and 28-item manifest SHA-256=${ACTUAL_MANIFEST_SHA}."
     ACC_PASSED=$((ACC_PASSED + 1))
 
     # ------------------------------------------------------------------
-    # SCRIPTED MUTATION VERIFICATION FOR M1 (C5 Year, C5 Author, C24 Skip Trait)
+    # SCRIPTED MUTATION VERIFICATION FOR M1 (5 Guards on Real Recorded Fixtures & C24 Skip Trait)
     # ------------------------------------------------------------------
     echo ""
-    echo "--- Scripted Mutation Verification (4 M1 Guards: C5 Year, C5 Author, C24 Skip Trait, CR2 Similarity 0.78->0.30) ---"
+    echo "--- Scripted Mutation Verification (5 M1 Guards: C5 Year, C5 Author, C24 Skip Trait, CR2 Similarity 0.78->0.50 & 0.78->0.90) ---"
     GIT_STATUS_BEFORE="$(git -C "${ROOT_DIR}" status --porcelain)"
 
     run_single_mutation() {
@@ -729,8 +793,8 @@ PYEOF
     run_single_mutation \
         "M1_C5_DisableYearDriftGuard" \
         "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
-        "SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering" \
-        "合成 (Synthetic, 不算 C5 证据) C5: DOI-less title search handwritten candidate filtering for year drift, first-author surname, and book-review rules" \
+        "FirewallTests/c5RecordedSupplementSixCasesReplay" \
+        "C5 Recorded Supplement: 6 DOI-less real-upstream title-search cases (a-f) verify indexed monograph, year drift >= 2, wrong author, near-threshold fabrication, Chinese paper, and 1-word common title" \
         "        if let citedYear = entry.year, citedYear > 0, record.year > 0 {
             if abs(citedYear - record.year) > maximumTitleSearchYearDrift {
                 return false
@@ -745,8 +809,8 @@ PYEOF
     run_single_mutation \
         "M2_C5_DisableFirstAuthorSurnameGuard" \
         "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
-        "SyntheticC5FirewallTests/syntheticC5HandwrittenCandidateFiltering" \
-        "合成 (Synthetic, 不算 C5 证据) C5: DOI-less title search handwritten candidate filtering for year drift, first-author surname, and book-review rules" \
+        "FirewallTests/c5RecordedSupplementSixCasesReplay" \
+        "C5 Recorded Supplement: 6 DOI-less real-upstream title-search cases (a-f) verify indexed monograph, year drift >= 2, wrong author, near-threshold fabrication, Chinese paper, and 1-word common title" \
         "        if !citedSurname.isEmpty || !candidateSurname.isEmpty {
             guard !citedSurname.isEmpty,
                   !candidateSurname.isEmpty,
@@ -777,12 +841,20 @@ PYEOF
         if ProcessInfo.processInfo.environment["CITESTUDIO_REAL_TECTONIC"] != "1" || TectonicRunner.detectBinary() == nil { return }'
 
     run_single_mutation \
-        "M4_CR2_LowerTitleSimilarity078To030" \
+        "M4_CR2_LowerTitleSimilarity078To050" \
         "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
         "FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests" \
         "CR2: Title-search similarity threshold (0.78) boundary checks using strictly verbatim responses in Tests/Fixtures/recorded/" \
         "    public static let minimumTitleSearchSimilarity: Double = 0.78" \
-        "    public static let minimumTitleSearchSimilarity: Double = 0.30"
+        "    public static let minimumTitleSearchSimilarity: Double = 0.50"
+
+    run_single_mutation \
+        "M5_CR2_RaiseTitleSimilarity078To090" \
+        "Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift" \
+        "FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests" \
+        "CR2: Title-search similarity threshold (0.78) boundary checks using strictly verbatim responses in Tests/Fixtures/recorded/" \
+        "    public static let minimumTitleSearchSimilarity: Double = 0.78" \
+        "    public static let minimumTitleSearchSimilarity: Double = 0.90"
 
     swift build -q
     GIT_STATUS_AFTER="$(git -C "${ROOT_DIR}" status --porcelain)"
@@ -791,7 +863,7 @@ PYEOF
         echo "${GIT_STATUS_AFTER}" >&2
         exit 1
     fi
-    echo "[PASS] Scripted M1 Mutations: All 4 mutations (C5 year, C5 surname, C24 skip trait, CR2 title similarity 0.78->0.30) failed their exact named @Test and restored cleanly."
+    echo "[PASS] Scripted M1 Mutations: All 5 mutations (C5 year, C5 surname, C24 skip trait, CR2 title similarity 0.78->0.50 & 0.78->0.90) failed their exact named @Test on recorded data and restored cleanly."
     ACC_PASSED=$((ACC_PASSED + 1))
 
     ACC_TOTAL=$((ACC_PASSED + ACC_SKIPPED))

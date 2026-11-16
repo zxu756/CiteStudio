@@ -199,7 +199,7 @@ with open(os.path.join(ws_dir, "path", "to", "main.tex"), "w", encoding="utf-8")
 recorded_dir = os.path.join(root_dir, "Tests", "Fixtures", "recorded")
 validator_py = os.path.join(root_dir, "Scripts", "acceptance", "validate_recorded_fixtures.py")
 val_res = subprocess.run(
-    [sys.executable, validator_py, recorded_dir, "--min-items", "20"],
+    [sys.executable, validator_py, recorded_dir, "--min-items", "28", "--expected-manifest-sha256", "pinned", "--verify-m0-baseline"],
     cwd=root_dir,
     capture_output=True,
     text=True,
