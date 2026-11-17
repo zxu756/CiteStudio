@@ -384,12 +384,12 @@ try:
 
         if cmd == ".build/debug/CiteStudio --cli status":
             assert res.returncode == 0, f"status exited {res.returncode}: {res.stderr}"
-            assert "CiteStudio 0.3.0 | Tectonic:" in res.stdout and "| Typst:" in res.stdout, res.stdout
+            assert "CiteStudio 0.4.0 | Tectonic:" in res.stdout and "| Typst:" in res.stdout, res.stdout
             if active_lang == "zh":
                 assert "not installed" not in res.stdout, res.stdout
             else:
                 assert "未安装" not in res.stdout, res.stdout
-            print(f"  [PASS] exit=0, matched 'CiteStudio 0.3.0 | Tectonic: ... | Typst: ...' (locale={active_lang}).")
+            print(f"  [PASS] exit=0, matched 'CiteStudio 0.4.0 | Tectonic: ... | Typst: ...' (locale={active_lang}).")
         elif cmd == ".build/debug/CiteStudio --cli clear-cache":
             assert res.returncode == 0, f"clear-cache exited {res.returncode}: {res.stderr}"
             assert os.path.isfile(os.path.join(cache_dir, "scholar_cache.sqlite")), "Product cache DB not created"

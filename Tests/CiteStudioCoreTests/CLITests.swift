@@ -423,7 +423,7 @@ struct CLITests {
         #expect(FileManager.default.fileExists(atPath: validatorURL.path))
 
         let recorderSource = try String(contentsOf: recorderURL, encoding: .utf8)
-        #expect(recorderSource.contains("USER_AGENT = \"CiteStudio/0.3.0\""))
+        #expect(recorderSource.contains("USER_AGENT = \"CiteStudio/0.4.0\""))
         #expect(recorderSource.contains("MAX_REQUESTS = 24"))
         #expect(recorderSource.contains("response_date_header"))
         #expect(recorderSource.contains("total_http_requests_sent"))
@@ -502,7 +502,7 @@ struct CLITests {
         let manifest: [String: Any] = [
             "started_at": "2026-11-15T00:00:00Z",
             "completed_at": "2026-11-15T00:00:02Z",
-            "user_agent": "CiteStudio/0.3.0",
+            "user_agent": "CiteStudio/0.4.0",
             "count": 1,
             "total_http_requests_sent": 1,
             "items": [item]

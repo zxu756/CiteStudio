@@ -38,7 +38,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-USER_AGENT = "CiteStudio/0.3.0"
+USER_AGENT = "CiteStudio/0.4.0"
 CROSSREF_BASE = "https://api.crossref.org"
 OPENALEX_BASE = "https://api.openalex.org"
 EXTRA_DOIS = ["10.48550/arxiv.1706.03762"]

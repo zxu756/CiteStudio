@@ -33,6 +33,8 @@
 
 ## 功能说明（除注明 `v0.2.0` 外均为 v0.3.0 起）
 
+> **v0.4.0 起（M1）**：没有 DOI 的条目按题名检索，用四条规则判断（标题相似度 `>= 0.78`、不是书评、`|Δyear| <= 1`、第一作者姓氏一致）；命中记录的刊物和类型会显示出来；`--cli verify --json` 与 MCP 带 `notFoundReason`。`v0.3.0` 里没有 DOI、上游没收录的条目被判 `MetadataMismatch`；现在判查不到（`GhostPaper`），`add_verified_bibtex` 仍拒绝写入。下面的真实录制说明与已知局限描述的就是这个行为。
+
 ### 1. 引文核查与三态查询结果分离（`ScholarTriangulator` — v0.3.0 起）
 通过 `URLSession` 查询 **Crossref** 与 **OpenAlex** 文献元数据，并将上游查询结果拆分为三种状态：
 

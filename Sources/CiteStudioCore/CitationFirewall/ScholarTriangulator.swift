@@ -59,7 +59,7 @@ public protocol ScholarLookupTransport: Sendable {
 public struct PublicScholarHTTPTransport: ScholarLookupTransport {
     public static let defaultCrossrefBaseURL = URL(string: "https://api.crossref.org")!
     public static let defaultOpenAlexBaseURL = URL(string: "https://api.openalex.org")!
-    public static let userAgent = "CiteStudio/0.3.0 (Academic Citation Firewall)"
+    public static let userAgent = "CiteStudio/0.4.0 (Academic Citation Firewall)"
 
     public let crossrefBaseURL: URL
     public let openAlexBaseURL: URL

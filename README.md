@@ -33,6 +33,8 @@
 
 ## Capabilities (`since v0.3.0` unless noted)
 
+> **Since v0.4.0 (M1)**: DOI-less entries are looked up by title and judged by four rules (title similarity `>= 0.78`, not a book review, `|Δyear| <= 1`, same first-author surname); the matched record's venue and type are shown; `--cli verify --json` and MCP carry `notFoundReason`. In `v0.3.0` a DOI-less entry the upstream did not index was judged `MetadataMismatch`; it is now judged not found (`GhostPaper`) and is still refused by `add_verified_bibtex`. The recorded-evidence note and the limitations below describe this behaviour.
+
 ### 1. Citation Verification & Three-Way Lookup Separation (`ScholarTriangulator` — since v0.3.0)
 Queries **Crossref** and **OpenAlex** over `URLSession` and separates three upstream outcomes:
 

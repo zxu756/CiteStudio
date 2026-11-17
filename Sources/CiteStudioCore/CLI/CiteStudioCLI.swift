@@ -65,8 +65,8 @@ public enum CiteStudioCLI {
             let tec = TectonicRunner.detectBinary(environment: environment)?.path ?? notInstalled
             let typ = TypstRunner.detectBinary(environment: environment)?.path ?? notInstalled
             let out = lang == .zhHans
-                ? "CiteStudio 0.3.0 | Tectonic: \(tec) | Typst: \(typ)\n"
-                : "CiteStudio 0.3.0 | Tectonic: \(tec) | Typst: \(typ)\n"
+                ? "CiteStudio 0.4.0 | Tectonic: \(tec) | Typst: \(typ)\n"
+                : "CiteStudio 0.4.0 | Tectonic: \(tec) | Typst: \(typ)\n"
             return ExecutionResult(exitCode: 0, stdout: out)
 
         case "lint":
