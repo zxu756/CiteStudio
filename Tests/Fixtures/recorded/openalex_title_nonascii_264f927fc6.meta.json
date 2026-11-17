@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 32612,
+  "content_type": "application/json",
+  "raw_file": "openalex_title_nonascii_264f927fc6.raw",
+  "requested_at": "2026-11-16T19:38:33Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:34 GMT",
+  "service": "openalex",
+  "sha256": "2f630c18d111a5576997888de45ba7bb1848ce16d521fc0cf0e2384df377f008",
+  "slug": "openalex_title_nonascii_264f927fc6",
+  "status": 200,
+  "url": "https://api.openalex.org/works?search=%E6%B0%B4%E7%A8%BB%E7%9A%84%E9%9B%84%E6%80%A7%E4%B8%8D%E5%AD%95%E6%80%A7&per-page=3"
+}

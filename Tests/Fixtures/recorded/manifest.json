@@ -1,6 +1,6 @@
 {
-  "completed_at": "2026-11-14T20:29:44Z",
-  "count": 20,
+  "completed_at": "2026-11-16T19:38:41Z",
+  "count": 28,
   "items": [
     {
       "attempts": 1,
@@ -261,9 +261,113 @@
       "slug": "crossref_title_Recursive_Causal_Lattices_for_Zero-Shot_Climate__1c12c1589a",
       "status": 200,
       "url": "https://api.crossref.org/works?query.bibliographic=Recursive%20Causal%20Lattices%20for%20Zero-Shot%20Climate%20Forecasting&rows=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 49645,
+      "content_type": "application/json",
+      "raw_file": "openalex_title_Introduction_to_Information_Retrieval_9e30aa0314.raw",
+      "requested_at": "2026-11-16T19:38:23Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:24 GMT",
+      "service": "openalex",
+      "sha256": "b338a592835d1687add12b6603d3d817e7ec0ace4570ab047eb0f507f9b60420",
+      "slug": "openalex_title_Introduction_to_Information_Retrieval_9e30aa0314",
+      "status": 200,
+      "url": "https://api.openalex.org/works?search=Introduction%20to%20Information%20Retrieval&per-page=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 4738,
+      "content_type": "application/json",
+      "raw_file": "crossref_title_Introduction_to_Information_Retrieval_9e30aa0314.raw",
+      "requested_at": "2026-11-16T19:38:25Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:27 GMT",
+      "service": "crossref",
+      "sha256": "151ce7d95333f117ece3563e50c0aeb479893bba8156719e102d146436e52ada",
+      "slug": "crossref_title_Introduction_to_Information_Retrieval_9e30aa0314",
+      "status": 200,
+      "url": "https://api.crossref.org/works?query.bibliographic=Introduction%20to%20Information%20Retrieval&rows=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 52822,
+      "content_type": "application/json",
+      "raw_file": "openalex_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36.raw",
+      "requested_at": "2026-11-16T19:38:28Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:29 GMT",
+      "service": "openalex",
+      "sha256": "176b0ca683658b48185ff0c4f07d6de951dfebcffed9b1d6f4512a7970c374c4",
+      "slug": "openalex_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36",
+      "status": 200,
+      "url": "https://api.openalex.org/works?search=Distinctive%20Image%20Features%20from%20Scale-Invariant%20Matching&per-page=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 37092,
+      "content_type": "application/json",
+      "raw_file": "crossref_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36.raw",
+      "requested_at": "2026-11-16T19:38:30Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:32 GMT",
+      "service": "crossref",
+      "sha256": "49f4f7e91d7ea2ba8df422f7d1a32ec58730be46f0f1617f841cae90737dd0a2",
+      "slug": "crossref_title_Distinctive_Image_Features_from_Scale-Invariant__60b5b13a36",
+      "status": 200,
+      "url": "https://api.crossref.org/works?query.bibliographic=Distinctive%20Image%20Features%20from%20Scale-Invariant%20Matching&rows=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 32612,
+      "content_type": "application/json",
+      "raw_file": "openalex_title_nonascii_264f927fc6.raw",
+      "requested_at": "2026-11-16T19:38:33Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:34 GMT",
+      "service": "openalex",
+      "sha256": "2f630c18d111a5576997888de45ba7bb1848ce16d521fc0cf0e2384df377f008",
+      "slug": "openalex_title_nonascii_264f927fc6",
+      "status": 200,
+      "url": "https://api.openalex.org/works?search=%E6%B0%B4%E7%A8%BB%E7%9A%84%E9%9B%84%E6%80%A7%E4%B8%8D%E5%AD%95%E6%80%A7&per-page=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 4930,
+      "content_type": "application/json",
+      "raw_file": "crossref_title_nonascii_264f927fc6.raw",
+      "requested_at": "2026-11-16T19:38:35Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:36 GMT",
+      "service": "crossref",
+      "sha256": "f37c2a8ad59fa39e82ece45ccd0b499476d9dade46a11871f0c7ded15d4315d2",
+      "slug": "crossref_title_nonascii_264f927fc6",
+      "status": 200,
+      "url": "https://api.crossref.org/works?query.bibliographic=%E6%B0%B4%E7%A8%BB%E7%9A%84%E9%9B%84%E6%80%A7%E4%B8%8D%E5%AD%95%E6%80%A7&rows=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 50232,
+      "content_type": "application/json",
+      "raw_file": "openalex_title_Algorithms_3c34d93828.raw",
+      "requested_at": "2026-11-16T19:38:37Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:38 GMT",
+      "service": "openalex",
+      "sha256": "1f545e4b2ec0cd2a64983105a5750fab3b6f558a901fe3946416f9d14ba62055",
+      "slug": "openalex_title_Algorithms_3c34d93828",
+      "status": 200,
+      "url": "https://api.openalex.org/works?search=Algorithms&per-page=3"
+    },
+    {
+      "attempts": 1,
+      "byte_length": 6327,
+      "content_type": "application/json",
+      "raw_file": "crossref_title_Algorithms_3c34d93828.raw",
+      "requested_at": "2026-11-16T19:38:39Z",
+      "response_date_header": "Mon, 16 Nov 2026 19:38:40 GMT",
+      "service": "crossref",
+      "sha256": "c59ad3ff0d54d5f6af6216231744b3cb6d4fab151445ef617e6cad807af15977",
+      "slug": "crossref_title_Algorithms_3c34d93828",
+      "status": 200,
+      "url": "https://api.crossref.org/works?query.bibliographic=Algorithms&rows=3"
     }
   ],
   "started_at": "2026-11-14T20:29:06Z",
-  "total_http_requests_sent": 20,
+  "total_http_requests_sent": 28,
   "user_agent": "CiteStudio/0.2.0"
 }

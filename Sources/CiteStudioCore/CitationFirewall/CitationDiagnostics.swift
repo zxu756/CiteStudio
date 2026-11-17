@@ -29,28 +29,48 @@ public enum CitationDiagnosticsEngine {
             )
 
         case .confirmedNotFound:
-            return CitationDiagnostic(
-                citeKey: entry.citeKey,
-                kind: .ghostPaper,
-                headline: "Confirmed not found (\(entry.citeKey))",
-                detail: "Neither Crossref nor OpenAlex found this DOI or a matching title. Blocked by Citation Firewall.",
-                headlineZh: "确认不存在 (\(entry.citeKey))",
-                detailZh: "Crossref 与 OpenAlex 对该 DOI 均返回未找到，或两个数据源按标题均无相近记录；已被引文防火墙拦截。",
-                matchedRecord: nil,
-                upgradedBibTeX: nil,
-                lineNumbers: lineNumbers,
-                hasLocalPDFEvidence: hasLocalPDF
-            )
+            let hasExplicitDOI = !(entry.doi?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            if hasExplicitDOI {
+                return CitationDiagnostic(
+                    citeKey: entry.citeKey,
+                    kind: .ghostPaper,
+                    notFoundReason: .doiNotFoundInCrossrefAndOpenAlex,
+                    headline: "Confirmed not found (\(entry.citeKey))",
+                    detail: "Neither Crossref nor OpenAlex found this DOI. Blocked by Citation Firewall.",
+                    headlineZh: "确认不存在 (\(entry.citeKey))",
+                    detailZh: "Crossref 与 OpenAlex 对该 DOI 均返回 404（未找到）；已被引文防火墙拦截。",
+                    matchedRecord: nil,
+                    upgradedBibTeX: nil,
+                    lineNumbers: lineNumbers,
+                    hasLocalPDFEvidence: hasLocalPDF
+                )
+            } else {
+                return CitationDiagnostic(
+                    citeKey: entry.citeKey,
+                    kind: .ghostPaper,
+                    notFoundReason: .noDOINotFoundInCrossrefOrOpenAlex,
+                    headline: "Not found in Crossref / OpenAlex (\(entry.citeKey))",
+                    detail: "No Crossref or OpenAlex title-search candidate matched title (>= 0.78), first-author surname, and year (±1). Older books, theses, or reports without a DOI may not be indexed; blocked by Citation Firewall.",
+                    headlineZh: "未在 Crossref / OpenAlex 中查到匹配记录 (\(entry.citeKey))",
+                    detailZh: "Crossref 与 OpenAlex 按标题检索均未找到同时满足标题相似度（>= 0.78）、第一作者姓氏一致且年份相差不超过 1 年的记录（无 DOI 的早期专著、学位论文或技术报告可能未被收录）；引文防火墙已拦截自动写入。",
+                    matchedRecord: nil,
+                    upgradedBibTeX: nil,
+                    lineNumbers: lineNumbers,
+                    hasLocalPDFEvidence: hasLocalPDF
+                )
+            }
 
         case .found(let record):
+            let typeEn = record.displayWorkType(in: .en)
+            let typeZh = record.displayWorkType(in: .zhHans)
             if record.isRetracted {
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .retracted,
                     headline: "Retracted publication (\(entry.citeKey))",
-                    detail: "Indexed by \(record.source) with an official retraction notice (\(record.venue), \(record.year)).",
+                    detail: "Indexed by \(record.source) with an official retraction notice (\(record.venue), \(record.year), type: \(typeEn)).",
                     headlineZh: "已撤稿文献告警 (\(entry.citeKey))",
-                    detailZh: "\(record.source) 记录显示该文献已正式撤稿（\(record.venue), \(record.year)），严禁引用。",
+                    detailZh: "\(record.source) 记录显示该文献已正式撤稿（\(record.venue), \(record.year)，类型：\(typeZh)），严禁引用。",
                     matchedRecord: record,
                     upgradedBibTeX: nil,
                     lineNumbers: lineNumbers,
@@ -63,10 +83,9 @@ public enum CitationDiagnosticsEngine {
             let titleSimilarity = ScholarTriangulator.normalizedTitleSimilarity(trimmedBibTitle, record.title)
             let titleMismatch = trimmedBibTitle.isEmpty || titleSimilarity < minimumDOITitleSimilarity
 
-            let bibSurname = ScholarTriangulator.foldForComparison(entry.firstAuthorSurname)
-            let recSurname = ScholarTriangulator.foldForComparison(record.firstAuthorSurname)
-            let authorMismatch = !bibSurname.isEmpty && !recSurname.isEmpty && bibSurname != "unknown"
-                && !recSurname.contains(bibSurname) && !bibSurname.contains(recSurname)
+            let bibSurname = ScholarTriangulator.normalizedAuthorSurname(from: entry.authors.first)
+            let recSurname = ScholarTriangulator.normalizedAuthorSurname(from: record.authors.first)
+            let authorMismatch = !bibSurname.isEmpty && !recSurname.isEmpty && bibSurname != recSurname
 
             let yearDrift: Int = {
                 guard let by = entry.year, record.year > 0 else { return 0 }
@@ -87,7 +106,7 @@ public enum CitationDiagnosticsEngine {
                     citeKey: entry.citeKey,
                     kind: .preprintUpgrade,
                     headline: "Peer-reviewed version available (\(upVenue) \(record.publishedUpgradeYear ?? record.year))",
-                    detail: "Currently cited as arXiv preprint; official version published in \(upVenue).",
+                    detail: "Currently cited as arXiv preprint; official version published in \(upVenue) (type: \(typeEn)).",
                     matchedRecord: record,
                     upgradedBibTeX: upgraded,
                     lineNumbers: lineNumbers,
@@ -106,11 +125,13 @@ public enum CitationDiagnosticsEngine {
                 if yearDrift > 1, let by = entry.year {
                     issues.append("year \(by) != \(record.year)")
                 }
+                let joinedIssues = issues.joined(separator: "; ")
                 return CitationDiagnostic(
                     citeKey: entry.citeKey,
                     kind: .metadataMismatch,
                     headline: "Metadata mismatch against \(record.source) (\(entry.citeKey))",
-                    detail: "Discrepancy detected: \(issues.joined(separator: "; ")).",
+                    detail: "Discrepancy detected: \(joinedIssues) (matched: \(record.venue), \(record.year), type: \(typeEn)).",
+                    detailZh: "检测到元数据不一致：\(joinedIssues)（命中记录：\(record.venue), \(record.year)，类型：\(typeZh)）。",
                     matchedRecord: record,
                     upgradedBibTeX: BibTeXParser.formatCanonicalBibTeX(entry: entry, record: record),
                     lineNumbers: lineNumbers,
@@ -121,7 +142,7 @@ public enum CitationDiagnosticsEngine {
             return CitationDiagnostic(
                 citeKey: entry.citeKey,
                 kind: .verified,
-                headline: "Verified via \(record.source) (\(record.venue), \(record.year))",
+                headline: "Verified via \(record.source) (\(record.venue), \(record.year), type: \(typeEn))",
                 detail: record.doi.map { "DOI: \($0)" } ?? "Title & author metadata verified.",
                 matchedRecord: record,
                 upgradedBibTeX: nil,

@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 50232,
+  "content_type": "application/json",
+  "raw_file": "openalex_title_Algorithms_3c34d93828.raw",
+  "requested_at": "2026-11-16T19:38:37Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:38 GMT",
+  "service": "openalex",
+  "sha256": "1f545e4b2ec0cd2a64983105a5750fab3b6f558a901fe3946416f9d14ba62055",
+  "slug": "openalex_title_Algorithms_3c34d93828",
+  "status": 200,
+  "url": "https://api.openalex.org/works?search=Algorithms&per-page=3"
+}

@@ -7,6 +7,7 @@ REPORT_FILE="${REPORT_DIR}/readme-commands.txt"
 
 RECORD_MODE=0
 RUN_INNER=0
+SCRUB_STDIN_MODE=0
 for arg in "$@"; do
     case "${arg}" in
         --record)
@@ -14,6 +15,9 @@ for arg in "$@"; do
             ;;
         --run-inner)
             RUN_INNER=1
+            ;;
+        --scrub-stdin)
+            SCRUB_STDIN_MODE=1
             ;;
         *)
             echo "Unknown argument: ${arg} (supported: --record)" >&2
@@ -32,20 +36,99 @@ trap cleanup EXIT INT TERM
 
 scrub_paths() {
     python3 -c '
-import re, sys
-root_dir, real_home, tmp_root = sys.argv[1], sys.argv[2], sys.argv[3]
+import os, pwd, re, shutil, sys
+
+root_dir, caller_home, outer_tmp = sys.argv[1], sys.argv[2], sys.argv[3]
 text = sys.stdin.read()
-if tmp_root:
-    text = text.replace(tmp_root, "<TMP_DIR>")
-if root_dir:
-    text = text.replace(root_dir, "<REPO_ROOT>")
-if real_home:
-    text = text.replace(real_home, "<HOME>")
-users_prefix = "/" + "Users" + "/"
-text = re.sub(re.escape(users_prefix) + r"[^/\s\"'"'"']+", "<HOME>", text)
-text = re.sub(r"/private/var/folders/[^\s\"'"'"')）。]+", "<TMP_DIR>", text)
-text = re.sub(r"/var/folders/[^\s\"'"'"')）。]+", "<TMP_DIR>", text)
-text = re.sub(r"(?:/private)?/tmp/citestudio-[^\s\"'"'"')）。]+", "<TMP_DIR>", text)
+
+STOP = r"[^\s\"\x27|);,）。]*"
+STOP_NONEMPTY = r"[^\s\"\x27|);,）。]+"
+
+def add_real_and_raw(paths, p):
+    if not p:
+        return
+    p_clean = p.rstrip("/")
+    if p_clean and p_clean != "/":
+        if p_clean not in paths:
+            paths.append(p_clean)
+        rp = os.path.realpath(p_clean).rstrip("/")
+        if rp and rp != "/" and rp not in paths:
+            paths.append(rp)
+
+# 1. Compiler host paths -> <COMPILER_PATH>
+text = re.sub(r"(Tectonic:\s*)(?:~|/)[^|\r\n]*?(?=\s*\|\s*Typst:)", r"\1<COMPILER_PATH>", text)
+text = re.sub(r"(Typst:\s*)(?:~|/)[^\r\n]*", r"\1<COMPILER_PATH>", text)
+
+compiler_bins = []
+for tool in ("tectonic", "typst", "swift", "swiftc", "swift-frontend", "clang", "clang++", "xcrun", "xcodebuild"):
+    add_real_and_raw(compiler_bins, shutil.which(tool))
+for cp in sorted(compiler_bins, key=len, reverse=True):
+    text = text.replace(cp, "<COMPILER_PATH>")
+
+text = re.sub(r"/Applications/Xcode" + STOP, "<COMPILER_PATH>", text)
+text = re.sub(r"/Library/Developer/" + STOP_NONEMPTY, "<COMPILER_PATH>", text)
+text = re.sub(
+    r"(?:/[^\s\"\x27|:);,）。]+)+/(?:tectonic|typst|swiftc?|swift-frontend|clang(?:\+\+)?|xcrun|xcodebuild)(?=$|[\s\"\x27|:);,）。])",
+    "<COMPILER_PATH>",
+    text,
+)
+
+# 2. Specific temporary directories (inner/outer citestudio-* mktemp & TMPDIR) -> <TMP_DIR>
+text = re.sub(r"(?:~|/[^\s\"\x27|);,）。]*)/citestudio-[A-Za-z0-9_.-]+" + STOP, "<TMP_DIR>", text)
+
+tmp_prefixes = []
+add_real_and_raw(tmp_prefixes, outer_tmp)
+add_real_and_raw(tmp_prefixes, os.environ.get("TMPDIR", ""))
+for tp in sorted(tmp_prefixes, key=len, reverse=True):
+    text = re.sub(re.escape(tp) + r"(?:/" + STOP + r")?", "<TMP_DIR>", text)
+
+# 3. Repository root -> <REPO_ROOT>
+repo_prefixes = []
+add_real_and_raw(repo_prefixes, root_dir)
+for rp in sorted(repo_prefixes, key=len, reverse=True):
+    text = text.replace(rp, "<REPO_ROOT>")
+
+# 4. Caller HOME override (when distinct from OS account home) -> <HOME>
+pw_entry = None
+try:
+    pw_entry = pwd.getpwuid(os.getuid())
+except KeyError:
+    pw_entry = None
+
+pw_homes = []
+if pw_entry is not None:
+    add_real_and_raw(pw_homes, pw_entry.pw_dir)
+
+caller_homes = []
+add_real_and_raw(caller_homes, caller_home)
+for ch in sorted(caller_homes, key=len, reverse=True):
+    if ch not in pw_homes:
+        text = re.sub(re.escape(ch) + r"(?:/" + STOP + r")?", "<HOME>", text)
+
+# 5. Generic system temp roots -> <TMP_DIR>
+text = re.sub(r"(?:/private)?/var/folders/" + STOP_NONEMPTY, "<TMP_DIR>", text)
+text = re.sub(r"(?:/private)?/tmp(?:/" + STOP_NONEMPTY + r")?(?=$|[\s\"\x27|);,）。])", "<TMP_DIR>", text)
+
+# 6. OS account home & /Users/... or /home/... -> <HOME>
+for ph in sorted(pw_homes, key=len, reverse=True):
+    text = re.sub(re.escape(ph) + r"(?:/" + STOP + r")?", "<HOME>", text)
+
+users_root = "/" + "Users" + "/"
+home_root = "/" + "home" + "/"
+text = re.sub(r"(?:/System/Volumes/Data|/private)?" + re.escape(users_root) + STOP_NONEMPTY, "<HOME>", text)
+text = re.sub(re.escape(home_root) + STOP_NONEMPTY, "<HOME>", text)
+
+# 7. Host username standalone tokens -> <USER>
+usernames = set()
+if pw_entry is not None and pw_entry.pw_name:
+    usernames.add(pw_entry.pw_name)
+for env_key in ("USER", "LOGNAME", "SUDO_USER"):
+    val = os.environ.get(env_key, "").strip()
+    if val:
+        usernames.add(val)
+for uname in sorted(usernames, key=len, reverse=True):
+    text = re.sub(rf"(?<![A-Za-z0-9_.-]){re.escape(uname)}(?![A-Za-z0-9_.-])", "<USER>", text)
+
 sys.stdout.write(text)
 ' "${ROOT_DIR}" "${REAL_HOME}" "${TMP_ROOT}"
 }
@@ -116,7 +199,7 @@ with open(os.path.join(ws_dir, "path", "to", "main.tex"), "w", encoding="utf-8")
 recorded_dir = os.path.join(root_dir, "Tests", "Fixtures", "recorded")
 validator_py = os.path.join(root_dir, "Scripts", "acceptance", "validate_recorded_fixtures.py")
 val_res = subprocess.run(
-    [sys.executable, validator_py, recorded_dir, "--min-items", "20"],
+    [sys.executable, validator_py, recorded_dir, "--min-items", "28", "--expected-manifest-sha256", "pinned", "--verify-m0-baseline"],
     cwd=root_dir,
     capture_output=True,
     text=True,
@@ -374,7 +457,9 @@ finally:
 PYEOF
 }
 
-if [[ "${RUN_INNER}" -eq 1 ]]; then
+if [[ "${SCRUB_STDIN_MODE}" -eq 1 ]]; then
+    scrub_paths
+elif [[ "${RUN_INNER}" -eq 1 ]]; then
     run_replay
 elif [[ "${RECORD_MODE}" -eq 1 ]]; then
     mkdir -p "${REPORT_DIR}"

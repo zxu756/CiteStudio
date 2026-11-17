@@ -40,14 +40,20 @@
    - **DOI 元数据一致性比对**：按 DOI 取回记录（若 Crossref 返回 HTTP `404`，例如 DataCite 注册的 arXiv `10.48550/...` DOI，会继续查询 OpenAlex），并核对**归一化标题相似度**（Jaccard 词项重合度 `>= 0.60`）、**去除 LaTeX 重音符号后的第一作者姓氏**与**发表年份**（`|Δyear| <= 1`）。真实 DOI 若配上了错误标题、错误作者或错误年份，会被判定为 **`MetadataMismatch`（元数据不符）**。
    - **撤稿识别（`Retracted`）**：检查 Crossref `update-to` 与 `updated-by` 中 `type` 或 `label` 含 `retract` 或 `withdraw` 的记录、Crossref `relation.is-retracted-by`、标题 `"RETRACTED:"` / `"WITHDRAWN:"` 前缀，以及 OpenAlex `is_retracted == true`。
    - **预印本转正提示（`PreprintUpgrade`）**：当文稿引用 `arXiv` / `bioRxiv` / `medRxiv` 预印本且上游检出同行评审正式版时，给出正式版 BibTeX 替换建议。
-2. **确认不存在（`GhostPaper`）**：
-   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或 Crossref 与 OpenAlex 标题检索均正常返回 HTTP `200` 且无匹配条目时，才判定为 **`GhostPaper`（确认不存在）**。
+2. **确认不存在 / 库中未查到（`GhostPaper`）**：
+   - **仅当** Crossref 与 OpenAlex 对所查 DOI **均**明确返回 HTTP `404`（未找到），或在无 DOI 条目的前 3 条标题检索均正常返回 HTTP `200` 且没有任何候选同时满足标题归一化相似度（`>= 0.78`）、发表年份差（`|Δyear| <= 1`）、第一作者姓氏一致及非书评类型（`book-review`）时（`C5`），才归入 **`GhostPaper`（`NOT FOUND`）**。对无 DOI 条目，诊断标题明确标注为“未在 Crossref / OpenAlex 中查到匹配记录”，不宣称文献系编造；在 `--cli verify --json` 与 MCP（`verify_citation` 及 `add_verified_bibtex` 拦截返回）中，枚举值 `verdict` 仍保持 `"GhostPaper"`，并附带结构化字段 `notFoundReason`：输入有 DOI 且 Crossref 与 OpenAlex 均返回 HTTP `404` 时为 `"doi_not_found_in_crossref_and_openalex"`，输入没有 DOI 且标题检索未命中时为 `"no_doi_not_found_in_crossref_or_openalex"`（详见下方**当前已知局限**）。
+   - **`C5` 真实录制证据与合成单测范围**：`Tests/Fixtures/recorded/` 中原样保存的真实 HTTP 响应（共 `28` 条，其中包含 **`6` 个不重复的无 DOI 标题检索 / `12` 条标题检索响应**）覆盖 **`8` 种无 DOI BibTeX 情形**：上游已收录的真实专著（Manning 等 2008 *Introduction to Information Retrieval*，跳过 `OpenAlex[0]` 的 `book-review` 记录命中 `OpenAlex[1]` 的 `book` 记录 -> `Verified`）、同一专著年份差 `>= 2`（`2003` -> `GhostPaper`）、同一专著换成其他作者（`Kleinberg` -> `GhostPaper`）、只改动 1 个词且相似度落在 `(0.50, 0.78)` 内的编造文献（Lowe 2004 *Distinctive Image Features from Scale-Invariant Matching*，Jaccard `0.75` -> `GhostPaper`，连同 `0.60` 与 `0.80` 真实候选构成阈值两侧回放边界）、真实中文题名论文（袁隆平 1966《水稻的雄性不孕性》-> `GhostPaper`）、极短高频题名专著（Sedgewick & Wayne 2011 *Algorithms* -> `GhostPaper`）、未被收录的早期专著（`real_nodoi`，Knuth 1968 -> `GhostPaper`），以及完全编造标题（`fake_nodoi` -> `GhostPaper`）。其余姓氏归一化细分分支（LaTeX 变音符、`van` 等贵族姓氏前缀、`Jr.` 等辈分后缀、`Lee` 对 `Greenlee` 子串不匹配）、上游 `type` 非 `book-review` 时仅靠 `"Book Review:"` 标题前缀拦截、以及非书评专著在 `|Δyear| == 1` 时的放行，当前仍只有手写**合成**样本（`SyntheticC5TitleCandidateTests.swift` 与 `m1-acceptance.sh` Part B，已标“合成”且不算 `C5` 证据）。
 3. **查询失败 / 未验证（`Unverified` / `未验证`）**：
    - 断网、DNS/连接拒绝、请求超时、HTTP `429` 限流、HTTP `5xx` 服务端故障或响应解析失败——包括其中一方返回 `404` 而另一方查询失败的情形——一律返回 **`Unverified`（未验证）**。
    - **`Unverified`（未验证）不写入本地 SQLite 缓存**，也不会归入 `GhostPaper`。网络恢复后再次运行会立即重新请求上游。
    - SQLite 缓存条目带有明确的过期时间（TTL）：命中记录默认缓存 `7 天`，确认不存在记录默认采用更短的 `24 小时` TTL；读取时自动剔除过期缓存，也可执行 `--cli clear-cache` 手动清空。
 
-> **当前已知局限**：无 DOI 的早期经典书籍或会议条目（例如 Knuth 1968 *The Art of Computer Programming*）目前仅按 Crossref/OpenAlex 标题首条命中比对，遇到包含相同常见词的后续期刊论文时可能报 `MetadataMismatch`。多候选综合打分与 Open Library 图书源回退计划在 M1 实现。
+> **当前已知局限**：
+> - **`notFoundReason` 只反映输入有没有 DOI**：在 `--cli verify --json` 与 MCP（`verify_citation` 及 `add_verified_bibtex`）中，`notFoundReason` 取值为 `"doi_not_found_in_crossref_and_openalex"` 或 `"no_doi_not_found_in_crossref_or_openalex"`：`notFoundReason` 只反映输入有没有 DOI（有 DOI 且两库都查不到 / 没有 DOI 且查不到）。一本没被 Crossref 和 OpenAlex 收录的真书，和一条编造的文献，得到的是同一个值，产品没有依据区分这两种情况。
+> - **早期无 DOI 专著未被收录及极短常见题名前 3 条被挤占**：Crossref 与 OpenAlex 主要收录期刊与会议论文，对早期无 DOI 专著、学位论文及技术报告覆盖有限，且标题检索仅取前 `3` 条结果（`per-page=3` / `rows=3`）。对于 Knuth 1968 *The Art of Computer Programming* 这类在上游检索结果中仅出现他人书评（如 `Odeh` 1969、`MacLaren` 1969、`Wells` 1973）的无 DOI 专著，或 Sedgewick & Wayne 2011 *Algorithms* 这类题名仅 1–2 个高频常见词导致前 3 条结果被其他文献占据的无 DOI 著作，`C5` 候选过滤会排除作者/年份/书评类型不符的条目并返回“未在 Crossref / OpenAlex 中查到匹配记录”（`GhostPaper` / `NOT FOUND`，不再误报 `MetadataMismatch`），在接入 Open Library 等图书源前不会自动放行。
+> - **中文等无空格姓名与未分词中文题名**：`normalizedAuthorSurname` 仅按逗号与空白字符切分姓氏，`normalizedTitleSimilarity` 按非字母数字字符切分且不做中文分词。当上游将中文作者存为空格分隔的 `"隆平 袁"`（归一化姓为 `"袁"`，如已录制的 1966 年《水稻的雄性不孕性》）或拼音姓名，而 `.bib` 按中文习惯写成无空格全名（`author = {袁隆平}`，归一化为 `"袁隆平"`）时，姓氏比对不命中，无 DOI 条目会被判为查不到（`GhostPaper` / `NOT FOUND`）；无标点中文题名也会作为单个词项参与比对，需整串一致。
+> - **未标为 `book-review` 的书评在写成书评作者时会被当成原书放行**：不少期刊书评在 OpenAlex 中类型为普通 `article`（Crossref 中为 `journal-article`）且标题不带 `"Book Review:"` 前缀（例如 *Journal of the American Statistical Association* 1969 年 Robert E. Odeh 对 *The Art of Computer Programming* 的书评，OpenAlex `"type"` 为 `"article"`）。仅靠类型与标题前缀无法拦截这类记录：若输入引文恰好将作者写成书评人（如 `Odeh`）且年份差在 `±1` 以内，该书评会被当成原书判为 `Verified`。为此，产品在命令行、JSON（`matchedVenue` / `matchedWorkType`）、MCP 与界面诊断中均显式列出命中记录的刊物与上游类型（缺失时显示“未知”）。
+> - **只比对第一作者（`authors.first`）**：无 DOI 标题候选过滤与有 DOI 元数据核验均只比对第一作者的归一化姓氏（`entry.authors.first` 与 `record.authors.first`）。当目标作者在真实多作者记录中排在第二作者（或更靠后），或 `.bib` 与 Crossref / OpenAlex 的作者顺序不一致时，无 DOI 条目会被判成查不到（`GhostPaper` / `NOT FOUND`），有 DOI 条目会被判为 `MetadataMismatch`。
 
 ### 2. MCP 权威元数据写入门禁（`CiteStudio --mcp`）
 通过标准输入/输出（`stdio`）运行 JSON-RPC 2.0 MCP 服务，提供 6 个工具：
@@ -141,7 +147,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | .build/debug/CiteStu
 - **桌面 GUI 打开与编辑本地项目目录（`M3`）**：通过菜单打开任意 `.tex` / `.typ` / `.bib` 文件夹、保存修改回磁盘及 `FSEvents` 文件变更自动刷新。
 - **桌面 GUI 编辑器与 PDF 双向 SyncTeX 跳转（`M3`）**：在编辑器点击代码行跳转到 PDF 对应位置，或按住 `⌘` 点击 PDF 跳回源码行（当前 `SyncTeXMapper` 仅作为底层解析库存在，尚未接入界面交互）。
 - **CLI/MCP PDF 建索引入口与句子级证据核验（`M2` / `M3`）**：在命令行与 MCP 提供 `pdfs/*.pdf` 建索引入口，按句子粒度切分并精确定位坐标框、核对数字与否定词一致性，以及在桌面 PDF 面板绘制高亮框。
-- **多候选排序与无 DOI 经典书籍回退检索（`M1`）**：结合标题、作者、年份对多条候选记录综合打分并接入 Open Library，提升早期无 DOI 专著的识别准确率。
+- **共用 460 条评测集回放与无 DOI 专著图书源回退（`M1` / `M2`）**：在 ScholarOS 共用 460 条评测集（待评测集建成）上执行离线回放评测，并接入 Open Library 等专著数据源以降低早期无 DOI 书籍的未命中率。
 
 ---
 

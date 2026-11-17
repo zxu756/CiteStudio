@@ -1,0 +1,13 @@
+{
+  "attempts": 1,
+  "byte_length": 49645,
+  "content_type": "application/json",
+  "raw_file": "openalex_title_Introduction_to_Information_Retrieval_9e30aa0314.raw",
+  "requested_at": "2026-11-16T19:38:23Z",
+  "response_date_header": "Mon, 16 Nov 2026 19:38:24 GMT",
+  "service": "openalex",
+  "sha256": "b338a592835d1687add12b6603d3d817e7ec0ace4570ab047eb0f507f9b60420",
+  "slug": "openalex_title_Introduction_to_Information_Retrieval_9e30aa0314",
+  "status": 200,
+  "url": "https://api.openalex.org/works?search=Introduction%20to%20Information%20Retrieval&per-page=3"
+}

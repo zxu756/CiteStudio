@@ -1,0 +1,61 @@
+==================================================================
+CiteStudio M1 Acceptance Suite (m1-acceptance.sh)
+Timestamp (UTC): 2026-11-16T20:00:31Z
+Commit / Branch: m1/rework @ 7988827
+Offline Proxy Guard: HTTP_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost
+==================================================================
+==> Building debug binary (CiteStudio)...
+
+--- M1 Item 1: ScholarOS 460-Entry Benchmark Input Format ---
+[SKIP] M1 Item 1 (ScholarOS 460-entry benchmark format & input): 等评测集 — ScholarOS 460-entry dataset has not been built yet.
+
+--- M1 Item 2: ScholarOS 460-Entry Replay Benchmark (m1-citation-bench.py) ---
+[SKIP] M1 Item 2 (ScholarOS 460-entry benchmark replay & threshold evaluation): 等评测集 — ScholarOS 460-entry dataset has not been built yet.
+
+--- M1 Item 3 (C5 Part A): Recorded Replay Across All 8 Recorded DOI-less Cases (Original 2 + Newly Recorded 6) & 10 DOI Cases ---
+VALID_RECORDED_FIXTURES: items=28 total_http_requests_sent=28 started_at=2026-11-14T20:29:06Z completed_at=2026-11-16T19:38:41Z m0_baseline_20_byte_identical=true
+  [DOI]         real_lecun                   -> CLI=Verified         | MCP=Verified        
+  [DOI]         real_lstm                    -> CLI=Verified         | MCP=Verified        
+  [DOI]         real_watson                  -> CLI=Verified         | MCP=Verified        
+  [DOI]         fake_nonsentinel             -> CLI=GhostPaper       | MCP=GhostPaper      
+  [DOI]         fake_sentinel                -> CLI=GhostPaper       | MCP=GhostPaper      
+  [DOI]         wrongtitle                   -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  [DOI]         wrongyear                    -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  [DOI]         wrongyear5                   -> CLI=MetadataMismatch | MCP=MetadataMismatch
+  [C5 DOI-less] real_nodoi                   -> CLI=GhostPaper       | MCP=GhostPaper      
+  [C5 DOI-less] fake_nodoi                   -> CLI=GhostPaper       | MCP=GhostPaper      
+  [DOI]         retracted_seralini           -> CLI=Retracted        | MCP=Retracted       
+  [DOI]         retracted_wakefield          -> CLI=Retracted        | MCP=Retracted       
+  [C5 DOI-less] c5_a_indexed_book            -> CLI=Verified         | MCP=Verified        
+  [C5 DOI-less] c5_b_same_book_year_drift    -> CLI=GhostPaper       | MCP=GhostPaper      
+  [C5 DOI-less] c5_c_same_book_wrong_author  -> CLI=GhostPaper       | MCP=GhostPaper      
+  [C5 DOI-less] c5_d_near_threshold_fab      -> CLI=GhostPaper       | MCP=GhostPaper      
+  [C5 DOI-less] c5_e_chinese_paper           -> CLI=GhostPaper       | MCP=GhostPaper      
+  [C5 DOI-less] c5_f_short_common_title      -> CLI=GhostPaper       | MCP=GhostPaper      
+[PASS] C5 Part A (Recorded Replay — sole C5 real-response evidence, covering all 8 recorded DOI-less cases: original 2 real_nodoi & fake_nodoi + newly recorded 6 c5_a..c5_f across 6 unique title queries): 18/18 CLI == MCP verdicts matched; c5_a Verified (skipping Choice book-review), while year-drift/wrong-author/near-threshold-0.75/Chinese/short-title & Knuth/fake_nodoi -> NOT FOUND (never MetadataMismatch).
+
+--- M1 Item 3 (C5 Part B · 合成 / Synthetic — 不算 C5 的证据): Handwritten Loopback Sanity Check (Year Δ=0/1/2, Author Surname Match/Mismatch, Book-Review, DOI Regression) ---
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff0        -> Verified
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff1        -> Verified
+  [合成 / synthetic, non-evidence] nodoi_knuth_diff2        -> GhostPaper
+  [合成 / synthetic, non-evidence] nodoi_author_mismatch    -> GhostPaper
+  [合成 / synthetic, non-evidence] nodoi_book_review_only   -> GhostPaper
+  [合成 / synthetic, non-evidence] doi_year_diff5           -> MetadataMismatch
+  [合成 / synthetic, non-evidence] doi_wrong_title          -> MetadataMismatch
+[INFO · 合成 / Synthetic — 不算 C5 的证据] C5 Part B (Handwritten Loopback Sanity Check — 手写合成响应正文，不算 C5 的证据，C5 的结论仅按 Part A 全部 8 条真实录制回放计；本段不计入 passed): Δyear=0/1 Verified, Δyear=2 & author mismatch & book-review -> GhostPaper, DOI Δyear=5 & wrong title -> MetadataMismatch.
+
+--- C24: Actual Swift Testing Skip Output (PATH without tectonic) & Recorded Fixture Immutability ---
+[PASS] C24: Test runner emitted native skipped record (passed=0, skipped=1) with tectonic stripped from PATH; original 20 M0 recorded files have 0-byte diff vs origin/m0/honest and 28-item manifest SHA-256=adc644701848c655114c59afc21e6548ee30e110a1c273cd6c278832b5a7b274.
+
+--- Scripted Mutation Verification (5 M1 Guards: C5 Year, C5 Author, C24 Skip Trait, CR2 Similarity 0.78->0.50 & 0.78->0.90) ---
+  [ok] M1_C5_DisableYearDriftGuard: compiled cleanly -> failed named test 'FirewallTests/c5RecordedSupplementSixCasesReplay' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M2_C5_DisableFirstAuthorSurnameGuard: compiled cleanly -> failed named test 'FirewallTests/c5RecordedSupplementSixCasesReplay' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M3_C24_EarlyReturnInsteadOfSkipTrait: compiled cleanly -> failed named test 'CLITests/c21AndC24TectonicTestEmitsActualSkippedFrameworkRecordWhenAbsentOnPath' (exit=1) -> restored Tests/CiteStudioCoreTests/CiteStudioCoreTests.swift
+  [ok] M4_CR2_LowerTitleSimilarity078To050: compiled cleanly -> failed named test 'FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+  [ok] M5_CR2_RaiseTitleSimilarity078To090: compiled cleanly -> failed named test 'FirewallTests/cr2RecordedTitleSimilarityThresholdBoundaryTests' (exit=1) -> restored Sources/CiteStudioCore/CitationFirewall/ScholarTriangulator.swift
+[PASS] Scripted M1 Mutations: All 5 mutations (C5 year, C5 surname, C24 skip trait, CR2 title similarity 0.78->0.50 & 0.78->0.90) failed their exact named @Test on recorded data and restored cleanly.
+
+==================================================================
+M1_ACCEPTANCE_SUMMARY: total=5 passed=3 skipped=2 exit_code=0 elapsed_sec=26 (skipped items NOT counted as passed)
+SKIPPED_ITEMS: M1_Item_1(等评测集) M1_Item_2(等评测集)
+==================================================================

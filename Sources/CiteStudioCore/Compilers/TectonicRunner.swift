@@ -3,19 +3,37 @@ import Foundation
 /// Drives local `tectonic` LaTeX compiler with `--synctex` enabled and structured log line parsing.
 public enum TectonicRunner {
 
-    public static func detectBinary() -> URL? {
-        let candidates = [
+    public static func detectBinary(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        if let rawPath = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawPath.isEmpty {
+            for entry in rawPath.split(separator: ":", omittingEmptySubsequences: true) {
+                let candidate = URL(fileURLWithPath: String(entry), isDirectory: true)
+                    .appendingPathComponent("tectonic").path
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return URL(fileURLWithPath: candidate)
+                }
+            }
+            return nil
+        }
+
+        let fallbackCandidates = [
             "/opt/homebrew/bin/tectonic",
             "/usr/local/bin/tectonic",
             (FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cargo/bin/tectonic")).path
         ]
-        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
+        for path in fallbackCandidates where FileManager.default.isExecutableFile(atPath: path) {
             return URL(fileURLWithPath: path)
         }
         return nil
     }
 
-    public static func compile(texFile: URL, outputDirectory: URL? = nil) -> CompileResult {
+    public static func compile(
+        texFile: URL,
+        outputDirectory: URL? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> CompileResult {
         let start = DispatchTime.now()
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: texFile.path, isDirectory: &isDir), !isDir.boolValue else {
@@ -36,7 +54,7 @@ public enum TectonicRunner {
             )
         }
         let outDir = outputDirectory ?? texFile.deletingLastPathComponent()
-        guard let bin = detectBinary() else {
+        guard let bin = detectBinary(environment: environment) else {
             return CompileResult(
                 engine: "tectonic",
                 succeeded: false,
@@ -47,7 +65,7 @@ public enum TectonicRunner {
                     CompilerDiagnostic(
                         file: texFile.lastPathComponent,
                         line: 1,
-                        message: "tectonic binary not found in /opt/homebrew/bin or /usr/local/bin",
+                        message: "tectonic binary not found on PATH",
                         isError: true
                     )
                 ]

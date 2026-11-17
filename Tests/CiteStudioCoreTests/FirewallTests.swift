@@ -1,3 +1,7 @@
+// 合成测试响应说明（Synthetic handwritten unit-test HTTP payloads vs. RecordedFixturesReplayServer）：
+// 本文件中使用 LoopbackScholarServer 或 LoopbackOpenAlexResultsWrapperServer 的单元测试返回手写合成 JSON 响应正文（不算 C5 的证据）；
+// 使用 RecordedFixturesReplayServer 的测试（如 CR1、CR2、CR4）严格原样回放 Tests/Fixtures/recorded/ 中的真实录制响应。
+
 import Darwin
 import Foundation
 import Testing
@@ -86,7 +90,7 @@ struct FirewallTests {
         #expect(triangulator.rawCacheRowCount() == 1)
     }
 
-    @Test("C1 + Item 10: Real URLSession HTTP transport handles offline -> online, 429, 500, timeout, and malformed JSON without caching")
+    @Test("合成 (Synthetic HTTP) C1 + Item 10: Real URLSession HTTP transport handles offline -> online, 429, 500, timeout, and malformed JSON without caching")
     func realURLSessionTransportOffline429And500AndTimeout() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_http_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -150,7 +154,7 @@ struct FirewallTests {
         #expect(liveTriangulator.rawCacheRowCount() == 1)
     }
 
-    @Test("Item 2: Confirmed-not-found TTL is shorter than found TTL, expired rows re-fetch, and clearCache purges rows")
+    @Test("合成 (Synthetic HTTP) Item 2: Confirmed-not-found TTL is shorter than found TTL, expired rows re-fetch, and clearCache purges rows")
     func cacheExpirationTTLAndClearCache() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_ttl_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -253,7 +257,7 @@ struct FirewallTests {
         }
     }
 
-    @Test("Row 8: Full 12-entry test.bib matrix over real URLSession HTTP transport matches expected M0 verdicts")
+    @Test("合成 (Synthetic HTTP) Row 8: Full 12-entry test.bib matrix over real URLSession HTTP transport matches expected M0 verdicts")
     func twelveEntryTestBibMatrix() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_12_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -293,7 +297,7 @@ struct FirewallTests {
             "wrongtitle": .metadataMismatch,
             "wrongyear": .metadataMismatch,
             "wrongyear5": .metadataMismatch,
-            "real_nodoi": .metadataMismatch, // C5 (scheduled for M1 per citestudio.md Row 8)
+            "real_nodoi": .ghostPaper, // C5 fixed in M1: Odeh/Jeeves 1969 book review rejected on surname mismatch -> not found
             "fake_nodoi": .ghostPaper,
             "retracted_seralini": .retracted,
             "retracted_wakefield": .retracted
@@ -304,6 +308,12 @@ struct FirewallTests {
         for entry in entries {
             let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
             #expect(diag.kind == expected[entry.citeKey], "Mismatch on \(entry.citeKey): got \(diag.kind)")
+            if entry.citeKey == "real_nodoi" {
+                #expect(diag.headline.contains("Not found in Crossref / OpenAlex"))
+                #expect(!diag.headline.lowercased().contains("fabricated"))
+                #expect(diag.localizedHeadline(in: .zhHans).contains("未在 Crossref / OpenAlex"))
+                #expect(!diag.localizedDetail(in: .zhHans).contains("编造"))
+            }
         }
     }
 
@@ -372,7 +382,7 @@ struct FirewallTests {
         #expect(ghostTriangulator.rawCacheRowCount() == 1)
     }
 
-    @Test("C22: parseOpenAlexWork & queryOpenAlexByDOI cover every kept branch (display_name, raw_author_name, repository source.type, missing-source OpenAlex Indexed Venue fallback, results wrapper) and TestFixtures.swift has honest comment")
+    @Test("合成 (Synthetic HTTP) C22: parseOpenAlexWork & queryOpenAlexByDOI cover every kept branch (display_name, raw_author_name, repository source.type, missing-source OpenAlex Indexed Venue fallback, results wrapper) and TestFixtures.swift has honest comment")
     func c22OpenAlexParserBranchesAndHonestTestFixturesComment() async throws {
         // 1. Missing primary_location.source -> reverts to "OpenAlex Indexed Venue" with publishedUpgradeVenue == nil
         let minimalWork: [String: Any] = [
@@ -466,9 +476,409 @@ struct FirewallTests {
         #expect(!fixturesSource.lowercased().contains("recorded-structure"))
         #expect(fixturesSource.contains("手写最小单元测试响应"))
     }
+
+    @Test("CR1: Recorded replay of Odeh book review surfaces matched venue and upstream workType across human/JSON/MCP outputs, and README EN/ZH document untagged book-review limitation")
+    func cr1RecordedOdehBookReviewSurfacesVenueAndWorkTypeAndReadmeDocumentsLimitation() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr1_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr1_cache.sqlite"),
+            transport: transport
+        )
+
+        let odehBib = """
+        @book{odeh_taocp, author = {Odeh, Robert E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, publisher = {Addison-Wesley}, year = {1968}}
+        """
+        let odehEntry = try #require(BibTeXParser.parseBibTeX(odehBib).first)
+        let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: odehEntry, triangulator: triangulator)
+        #expect(diag.kind == .verified)
+        #expect(diag.matchedRecord?.venue == "Journal of the American Statistical Association")
+        #expect(diag.matchedRecord?.workType == "article")
+        #expect(diag.headline.contains("Journal of the American Statistical Association"))
+        #expect(diag.headline.contains("type: article"))
+        #expect(diag.localizedHeadline(in: .zhHans).contains("Journal of the American Statistical Association"))
+        #expect(diag.localizedHeadline(in: .zhHans).contains("类型：article"))
+
+        // Missing upstream workType renders honestly as "unknown" / "未知" (never an invented default)
+        let untypedRecord = ScholarRecord(source: "Crossref", title: "Sample", authors: ["Jane Doe"], year: 2020, venue: "Venue", workType: nil)
+        #expect(untypedRecord.displayWorkType(in: .en) == "unknown")
+        #expect(untypedRecord.displayWorkType(in: .zhHans) == "未知")
+
+        // Recorded Crossref DOI (real_lecun) also populates workType ("journal-article")
+        let lecunEntry = try #require(BibTeXParser.parseBibTeX("""
+        @article{real_lecun, author = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey}, title = {Deep learning}, journal = {Nature}, year = {2015}, doi = {10.1038/nature14539}}
+        """).first)
+        let lecunDiag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: lecunEntry, triangulator: triangulator)
+        #expect(lecunDiag.kind == .verified)
+        #expect(lecunDiag.matchedRecord?.venue == "Nature")
+        #expect(lecunDiag.matchedRecord?.workType == "journal-article")
+
+        // CLI --json and MCP verify_citation must also surface matchedVenue and matchedWorkType
+        let bibURL = tmp.appendingPathComponent("odeh.bib")
+        try odehBib.write(to: bibURL, atomically: true, encoding: .utf8)
+        let cliEnv = [
+            "CITESTUDIO_CROSSREF_BASE_URL": replay.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": replay.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cli_cache").path
+        ]
+        let cliRes = await CiteStudioCLI.run(
+            arguments: ["CiteStudio", "--cli", "verify", bibURL.path, "--json", "--lang", "en"],
+            environment: cliEnv
+        )
+        #expect(cliRes.exitCode == 0)
+        let cliJSON = try #require(try JSONSerialization.jsonObject(with: Data(cliRes.stdout.utf8)) as? [String: Any])
+        let cliEntries = try #require(cliJSON["entries"] as? [[String: Any]])
+        #expect(cliEntries.first?["matchedVenue"] as? String == "Journal of the American Statistical Association")
+        #expect(cliEntries.first?["matchedWorkType"] as? String == "article")
+
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer, language: .en)
+        let mcpReq: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 91,
+            "method": "tools/call",
+            "params": ["name": "verify_citation", "arguments": ["bibtex": odehBib]]
+        ]
+        let mcpRaw = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: mcpReq), encoding: .utf8)!))
+        let mcpRPC = try #require(try JSONSerialization.jsonObject(with: Data(mcpRaw.utf8)) as? [String: Any])
+        let mcpContent = try #require((mcpRPC["result"] as? [String: Any])?["content"] as? [[String: Any]])
+        let mcpText = try #require(mcpContent.first?["text"] as? String)
+        let mcpPayload = try #require(try JSONSerialization.jsonObject(with: Data(mcpText.utf8)) as? [String: Any])
+        #expect(mcpPayload["matchedVenue"] as? String == "Journal of the American Statistical Association")
+        #expect(mcpPayload["matchedWorkType"] as? String == "article")
+
+        // README.md and README.zh-CN.md must explicitly document that untagged book reviews (type: article / journal-article without Book Review: prefix) are treated as the original book when cited with the reviewer's author/year
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+        #expect(readmeEN.contains("Journal of the American Statistical Association"))
+        #expect(readmeEN.contains("treated as the original"))
+        #expect(readmeZH.contains("Journal of the American Statistical Association"))
+        #expect(readmeZH.contains("当成原书"))
+    }
+
+    @Test("CR2: Title-search similarity threshold (0.78) boundary checks using strictly verbatim responses in Tests/Fixtures/recorded/")
+    func cr2RecordedTitleSimilarityThresholdBoundaryTests() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr2_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr2_cache.sqlite"),
+            transport: transport
+        )
+
+        // 1. End-to-end HTTP replay ABOVE 0.78 inside [0.78, 0.90) (turns RED if threshold 0.78 -> 0.90):
+        //    (1a) Recorded OpenAlex/Crossref response for "The Art of Computer Programming, Volume 1: Fundamental Algorithms"
+        //         contains MacLaren 1969 ("The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)", type="article", sim=8/10=0.8000).
+        let maclarenAbove = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_above_080, author = {MacLaren, M. Donald}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, journal = {SIAM Review}, year = {1969}}
+        """).first)
+        let simAbove = ScholarTriangulator.normalizedTitleSimilarity(
+            maclarenAbove.title,
+            "The Art of Computer Programming—Volume 1: Fundamental Algorithms (Donald E. Knuth)"
+        )
+        #expect(abs(simAbove - 0.80) < 1e-9)
+        let diagAbove = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: maclarenAbove, triangulator: triangulator)
+        #expect(diagAbove.kind == .verified)
+        #expect(diagAbove.matchedRecord?.venue == "SIAM Review")
+
+        //    (1b) Newly recorded OpenAlex response for "Introduction to Information Retrieval"
+        //         contains Stefano Ceri 2013 ("An Introduction to Information Retrieval", type="book-chapter", sim=4/5=0.8000).
+        let ceriAbove = try #require(BibTeXParser.parseBibTeX("""
+        @incollection{cr2_ceri_above_080, author = {Ceri, Stefano}, title = {Introduction to Information Retrieval}, booktitle = {Web Information Retrieval}, year = {2013}}
+        """).first)
+        let simCeri = ScholarTriangulator.normalizedTitleSimilarity(
+            ceriAbove.title,
+            "An Introduction to Information Retrieval"
+        )
+        #expect(abs(simCeri - 0.80) < 1e-9)
+        let diagCeri = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: ceriAbove, triangulator: triangulator)
+        #expect(diagCeri.kind == .verified)
+        #expect(diagCeri.matchedRecord?.venue == "Springer eBooks")
+        #expect(diagCeri.matchedRecord?.workType == "book-chapter")
+
+        // 2. End-to-end HTTP replay BELOW 0.78 inside (0.50, 0.78) (turns RED if threshold 0.78 -> 0.50):
+        //    (2a) Newly recorded OpenAlex[0] & Crossref[1] response for "Distinctive Image Features from Scale-Invariant Matching"
+        //         contains David G. Lowe 2004 ("Distinctive Image Features from Scale-Invariant Keypoints", type="article"/"journal-article", sim=6/8=0.7500).
+        //         Author ("Lowe") and year (2004) match; ONLY similarity 0.7500 < 0.78 rejects it.
+        let loweBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_lowe_below_075, author = {Lowe, David G.}, title = {Distinctive Image Features from Scale-Invariant Matching}, journal = {International Journal of Computer Vision}, year = {2004}}
+        """).first)
+        let simLowe = ScholarTriangulator.normalizedTitleSimilarity(
+            loweBelow.title,
+            "Distinctive Image Features from Scale-Invariant Keypoints"
+        )
+        #expect(abs(simLowe - 0.75) < 1e-9)
+        let diagLowe = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: loweBelow, triangulator: triangulator)
+        #expect(diagLowe.kind == .ghostPaper)
+        #expect(diagLowe.kind != .verified)
+        #expect(diagLowe.kind != .metadataMismatch)
+
+        //    (2b) Newly recorded Crossref[2] response for "Distinctive Image Features from Scale-Invariant Matching"
+        //         contains Guoliang Tang 2019 ("Distinctive image features from illumination and scale invariant keypoints",
+        //         venue="Multimedia Tools and Applications", type="journal-article", sim=6/10=0.6000).
+        //         Author ("Tang") and year (2019) match; ONLY similarity 0.6000 < 0.78 rejects it.
+        let tangBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_tang_below_060, author = {Tang, Guoliang}, title = {Distinctive Image Features from Scale-Invariant Matching}, journal = {Multimedia Tools and Applications}, year = {2019}}
+        """).first)
+        let simTang = ScholarTriangulator.normalizedTitleSimilarity(
+            tangBelow.title,
+            "Distinctive image features from illumination and scale invariant keypoints"
+        )
+        #expect(abs(simTang - 0.60) < 1e-9)
+        let diagTang = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: tangBelow, triangulator: triangulator)
+        #expect(diagTang.kind == .ghostPaper)
+        #expect(diagTang.kind != .verified)
+        #expect(diagTang.kind != .metadataMismatch)
+
+        //    (2c) Original recorded Crossref response for "Recursive Causal Lattices for Zero-Shot Climate Forecasting"
+        //         contains Jun Wang 2025 (sim = 5/16 = 0.3125 < 0.78) and Frédéric Montet 2025 (sim = 4/17 = 0.2353 < 0.78).
+        let wangBelow = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_below_03125, author = {Wang, Jun}, title = {Recursive Causal Lattices for Zero-Shot Climate Forecasting}, journal = {Energy}, year = {2025}}
+        """).first)
+        let simWang = ScholarTriangulator.normalizedTitleSimilarity(
+            wangBelow.title,
+            "A zero-shot load forecasting method for extreme weather integrating causal learning and meta-learning"
+        )
+        #expect(abs(simWang - 0.3125) < 1e-9)
+        let diagWang = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: wangBelow, triangulator: triangulator)
+        #expect(diagWang.kind == .ghostPaper)
+        #expect(diagWang.kind != .metadataMismatch)
+
+        let montetBelow = try #require(BibTeXParser.parseBibTeX("""
+        @inproceedings{cr2_below_02353, author = {Montet, Fr{\\'e}d{\\'e}ric}, title = {Recursive Causal Lattices for Zero-Shot Climate Forecasting}, booktitle = {Conf}, year = {2025}}
+        """).first)
+        let diagMontet = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: montetBelow, triangulator: triangulator)
+        #expect(diagMontet.kind == .ghostPaper)
+
+        // 3. Direct candidate-matcher boundary check on verbatim recorded .raw JSON (10/13 = 0.7692 < 0.78 vs 11/13 = 0.8462 >= 0.78):
+        let recDir = RecordedFixturesReplayServer.defaultRecordedDirectory
+        let wakefieldRawData = try Data(contentsOf: recDir.appendingPathComponent("openalex_doi_10.1016_s0140-6736_97_11096-0_e1144ad9cb.raw"))
+        let wakefieldJSON = try #require(try JSONSerialization.jsonObject(with: wakefieldRawData) as? [String: Any])
+        let wakefieldRecord = try #require(PublicScholarHTTPTransport.parseOpenAlexWork(wakefieldJSON))
+
+        let tenOfThirteenBib = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_0769, author = {Wakefield, Andrew J.}, title = {Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental}, year = {1998}}
+        """).first)
+        let sim0769 = ScholarTriangulator.normalizedTitleSimilarity(tenOfThirteenBib.title, wakefieldRecord.title)
+        #expect(abs(sim0769 - (10.0 / 13.0)) < 1e-9) // 0.7692307... < 0.78
+        #expect(!ScholarTriangulator.isMatchingTitleSearchCandidate(
+            entry: tenOfThirteenBib,
+            record: wakefieldRecord,
+            upstreamWorkType: wakefieldRecord.workType
+        ))
+
+        let elevenOfThirteenBib = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr2_0846, author = {Wakefield, Andrew J.}, title = {Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder}, year = {1998}}
+        """).first)
+        let sim0846 = ScholarTriangulator.normalizedTitleSimilarity(elevenOfThirteenBib.title, wakefieldRecord.title)
+        #expect(abs(sim0846 - (11.0 / 13.0)) < 1e-9) // 0.8461538... >= 0.78
+        #expect(ScholarTriangulator.isMatchingTitleSearchCandidate(
+            entry: elevenOfThirteenBib,
+            record: wakefieldRecord,
+            upstreamWorkType: wakefieldRecord.workType
+        ))
+    }
+
+    @Test("CR4: Recorded replay confirms first-author-only comparison rejects second-author citations, and README EN/ZH Known Limitations document this")
+    func cr4FirstAuthorOnlyComparisonLimitationIsDocumented() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_cr4_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("cr4_cache.sqlite"),
+            transport: transport
+        )
+
+        // 1. DOI-less title search: OpenAlex recorded candidate [0] (1969) lists ["Robert E. Odeh", "Donald E. Knuth"]
+        //    (Knuth is the 2nd author). Because isMatchingTitleSearchCandidate only compares authors.first, citing Knuth (1969) returns GhostPaper (not found).
+        let secondAuthorNoDOI = try #require(BibTeXParser.parseBibTeX("""
+        @article{cr4_second_author_nodoi, author = {Knuth, Donald E.}, title = {The Art of Computer Programming, Volume 1: Fundamental Algorithms}, journal = {JASA}, year = {1969}}
+        """).first)
+        let diagNoDOI = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: secondAuthorNoDOI, triangulator: triangulator)
+        #expect(diagNoDOI.kind == .ghostPaper)
+
+        // 2. Explicit DOI lookup: recorded 10.1162/neco.1997.9.8.1735 lists ["Sepp Hochreiter", "Jürgen Schmidhuber"].
+        //    Citing 2nd author Schmidhuber first triggers MetadataMismatch because CitationDiagnosticsEngine only compares authors.first.
+        let secondAuthorDOI = try #require(BibTeXParser.parseBibTeX(#"""
+        @article{cr4_second_author_doi, author = {Schmidhuber, J{\"u}rgen}, title = {Long Short-Term Memory}, journal = {Neural Computation}, year = {1997}, doi = {10.1162/neco.1997.9.8.1735}}
+        """#).first)
+        let diagDOI = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: secondAuthorDOI, triangulator: triangulator)
+        #expect(diagDOI.kind == .metadataMismatch)
+
+        // 3. README.md and README.zh-CN.md Known Limitations must document that only the first author is compared
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let readmeEN = try String(contentsOf: repoRoot.appendingPathComponent("README.md"), encoding: .utf8)
+        let readmeZH = try String(contentsOf: repoRoot.appendingPathComponent("README.zh-CN.md"), encoding: .utf8)
+        #expect(readmeEN.contains("second author") || readmeEN.contains("second (or later) author"))
+        #expect(readmeEN.contains("only compares the first author") || readmeEN.contains("First-author-only comparison"))
+        #expect(readmeZH.contains("只比对第一作者"))
+        #expect(readmeZH.contains("第二作者"))
+    }
+
+    @Test("C5 Recorded Supplement: 6 DOI-less real-upstream title-search cases (a-f) verify indexed monograph, year drift >= 2, wrong author, near-threshold fabrication, Chinese paper, and 1-word common title")
+    func c5RecordedSupplementSixCasesReplay() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cs_c5_supp_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let replay = try RecordedFixturesReplayServer()
+        defer { replay.stop() }
+        let transport = PublicScholarHTTPTransport(
+            crossrefBaseURL: replay.crossrefBaseURL,
+            openAlexBaseURL: replay.openAlexBaseURL,
+            timeoutInterval: 2.0
+        )
+        let triangulator = try ScholarTriangulator(
+            cacheDBPath: tmp.appendingPathComponent("c5_supp_cache.sqlite"),
+            transport: transport
+        )
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let supplementBibURL = repoRoot.appendingPathComponent("Tests/Fixtures/c5_nodoi_supplement.bib")
+        let supplementBibText = try String(contentsOf: supplementBibURL, encoding: .utf8)
+        let entries = BibTeXParser.parseBibTeX(supplementBibText)
+        #expect(entries.count == 6)
+
+        var diagsByKey: [String: CitationDiagnostic] = [:]
+        for entry in entries {
+            let diag = await CitationDiagnosticsEngine.evaluateSingleEntry(entry: entry, triangulator: triangulator)
+            diagsByKey[entry.citeKey] = diag
+        }
+
+        // (a) Real book indexed upstream, exact title + author + year:
+        //     OpenAlex[0] is Choice Reviews Online (2009, type="book-review", same authors) -> rejected by C5 book-review guard;
+        //     OpenAlex[1] is Cambridge University Press eBooks (2008, type="book", 10.1017/cbo9780511809071) -> Verified!
+        let diagA = try #require(diagsByKey["c5_a_indexed_book"])
+        #expect(diagA.kind == .verified)
+        #expect(diagA.matchedRecord?.venue == "Cambridge University Press eBooks")
+        #expect(diagA.matchedRecord?.workType == "book")
+        #expect(diagA.matchedRecord?.doi == "10.1017/cbo9780511809071")
+        #expect(diagA.notFoundReason == nil)
+
+        // (b) Same book, year differs by 5 (>= 2: 2003 vs 2008) -> GhostPaper (NOT FOUND, never MetadataMismatch or Verified)
+        let diagB = try #require(diagsByKey["c5_b_same_book_year_drift"])
+        #expect(diagB.kind == .ghostPaper)
+        #expect(diagB.kind != .metadataMismatch)
+        #expect(diagB.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (c) Same book, author replaced with Kleinberg -> GhostPaper (NOT FOUND, never MetadataMismatch or Verified)
+        let diagC = try #require(diagsByKey["c5_c_same_book_wrong_author"])
+        #expect(diagC.kind == .ghostPaper)
+        #expect(diagC.kind != .metadataMismatch)
+        #expect(diagC.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (d) Fabricated title changing 1 word of Lowe 2004 (Keypoints -> Matching; Jaccard 6/8 = 0.7500 in (0.50, 0.78)) -> GhostPaper
+        let diagD = try #require(diagsByKey["c5_d_near_threshold_fab"])
+        #expect(diagD.kind == .ghostPaper)
+        #expect(diagD.kind != .verified)
+        #expect(diagD.kind != .metadataMismatch)
+        #expect(diagD.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (e) Real Chinese-title paper (袁隆平 1966 水稻的雄性不孕性):
+        //     Upstream OpenAlex[0] & Crossref[0] store author as "隆平 袁" (normalized surname "袁"), whereas unspaced Chinese BibTeX
+        //     author "袁隆平" normalizes to "袁隆平" -> rejected as GhostPaper (NOT FOUND).
+        let diagE = try #require(diagsByKey["c5_e_chinese_paper"])
+        #expect(diagE.kind == .ghostPaper)
+        #expect(diagE.kind != .metadataMismatch)
+        #expect(diagE.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // (f) Short 1-word common title ("Algorithms", Sedgewick & Wayne 2011):
+        //     Upstream top-3 returns other works -> rejected by C5 guards as GhostPaper (NOT FOUND, never false Verified)
+        let diagF = try #require(diagsByKey["c5_f_short_common_title"])
+        #expect(diagF.kind == .ghostPaper)
+        #expect(diagF.kind != .verified)
+        #expect(diagF.kind != .metadataMismatch)
+        #expect(diagF.notFoundReason == .noDOINotFoundInCrossrefOrOpenAlex)
+
+        // CLI --json and MCP add_verified_bibtex parity on the 6 cases: only (a) may be appended to target .bib
+        let cliEnv = [
+            "CITESTUDIO_CROSSREF_BASE_URL": replay.crossrefBaseURL.absoluteString,
+            "CITESTUDIO_OPENALEX_BASE_URL": replay.openAlexBaseURL.absoluteString,
+            "CITESTUDIO_CACHE_DIR": tmp.appendingPathComponent("cli_cache").path
+        ]
+        let cliRes = await CiteStudioCLI.run(
+            arguments: ["CiteStudio", "--cli", "verify", supplementBibURL.path, "--json", "--lang", "en"],
+            environment: cliEnv
+        )
+        #expect(cliRes.exitCode == 1)
+        let cliRoot = try #require(try JSONSerialization.jsonObject(with: Data(cliRes.stdout.utf8)) as? [String: Any])
+        let cliSummary = try #require(cliRoot["summary"] as? [String: Any])
+        #expect(cliSummary["evaluated"] as? Int == 6)
+        #expect(cliSummary["verified"] as? Int == 1)
+        #expect(cliSummary["ghostPaper"] as? Int == 5)
+        #expect(cliSummary["metadataMismatch"] as? Int == 0)
+
+        let indexer = try LocalPDFIndexer(dbURL: tmp.appendingPathComponent("fts.sqlite"))
+        let mcp = CiteStudioMCPServer(triangulator: triangulator, pdfIndexer: indexer, language: .en)
+        let outBib = tmp.appendingPathComponent("mcp_out.bib")
+        try "".write(to: outBib, atomically: true, encoding: .utf8)
+        for (idx, entry) in entries.enumerated() {
+            let req: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": idx + 1,
+                "method": "tools/call",
+                "params": [
+                    "name": "add_verified_bibtex",
+                    "arguments": ["bib_file": outBib.path, "bibtex": entry.rawBibTeX]
+                ]
+            ]
+            let raw = try #require(await mcp.handleJSONLine(String(data: try JSONSerialization.data(withJSONObject: req), encoding: .utf8)!))
+            let rpc = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+            let result = try #require(rpc["result"] as? [String: Any])
+            let isErr = (result["isError"] as? Bool) ?? false
+            if entry.citeKey == "c5_a_indexed_book" {
+                #expect(!isErr)
+            } else {
+                #expect(isErr)
+            }
+        }
+        let writtenBib = try String(contentsOf: outBib, encoding: .utf8)
+        #expect(writtenBib.contains("c5_a_indexed_book"))
+        #expect(writtenBib.contains("10.1017/cbo9780511809071"))
+        #expect(!writtenBib.contains("c5_b_same_book_year_drift"))
+        #expect(!writtenBib.contains("c5_c_same_book_wrong_author"))
+        #expect(!writtenBib.contains("c5_d_near_threshold_fab"))
+        #expect(!writtenBib.contains("c5_e_chinese_paper"))
+        #expect(!writtenBib.contains("c5_f_short_common_title"))
+    }
 }
 
-/// Minimal loopback helper testing OpenAlex `{"results": [...]}` wrapper payloads on `/works/https://doi.org/...`.
+/// 合成（Synthetic）手写最小响应辅助服务器：仅用于测试 OpenAlex `{"results": [...]}` 包装格式分支。
 private final class LoopbackOpenAlexResultsWrapperServer: @unchecked Sendable {
     private var listenFD: Int32 = -1
     private let lock = NSLock()
